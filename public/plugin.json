@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/uTools-Labs/utools-api-types/refs/heads/main/resource/utools.schema.json",
+  "main": "index.html",
+  "preload": "preload/services.js",
+  "logo": "logo.png",
+  "development": {
+    "main": "http://localhost:5173"
+  },
+  "features": [
+    {
+      "code": "template",
+      "explain": "uTools 插件模板 - 请根据需要修改 feature 配置",
+      "cmds": [
+        "template"
+      ]
+    }
+  ]
+}
