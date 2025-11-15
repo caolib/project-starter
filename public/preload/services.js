@@ -156,4 +156,96 @@ window.services = {
       return { success: false, message: error.message, results: [] }
     }
   }
+  ,
+  // 从 VSCode 系列编辑器的 storage.json 文件中提取项目路径
+  extractProjectsFromStorage(storageFilePath) {
+    try {
+      const content = fs.readFileSync(storageFilePath, { encoding: 'utf-8' })
+      const data = JSON.parse(content)
+      const projects = new Set()
+
+      // 1. 从 profileAssociations.workspaces 提取
+      if (data.profileAssociations && data.profileAssociations.workspaces) {
+        Object.keys(data.profileAssociations.workspaces).forEach(uri => {
+          // 跳过远程工作区 (vscode-remote://)
+          if (!uri.startsWith('vscode-remote://')) {
+            projects.add(uri)
+          }
+        })
+      }
+
+      // 2. 从 windowsState.lastActiveWindow 提取
+      if (data.windowsState && data.windowsState.lastActiveWindow && data.windowsState.lastActiveWindow.folder) {
+        const uri = data.windowsState.lastActiveWindow.folder
+        if (!uri.startsWith('vscode-remote://')) {
+          projects.add(uri)
+        }
+      }
+
+      // 3. 从 backupWorkspaces.folders 提取
+      if (data.backupWorkspaces && data.backupWorkspaces.folders) {
+        data.backupWorkspaces.folders.forEach(item => {
+          if (item.folderUri && !item.folderUri.startsWith('vscode-remote://')) {
+            projects.add(item.folderUri)
+          }
+        })
+      }
+
+      // 解码 URI 为真实路径
+      const decodedProjects = Array.from(projects).map(uri => {
+        try {
+          // file:///c%3A/code/... -> c:/code/...
+          let decoded = decodeURIComponent(uri.replace('file:///', ''))
+          // 将 / 替换为 Windows 路径分隔符
+          decoded = decoded.replace(/\//g, path.sep)
+          return decoded
+        } catch (err) {
+          return uri
+        }
+      }).filter(p => p && fs.existsSync(p)) // 只返回存在的路径
+
+      return {
+        success: true,
+        projects: decodedProjects,
+        count: decodedProjects.length,
+        source: storageFilePath
+      }
+    } catch (error) {
+      return { success: false, message: error.message, projects: [] }
+    }
+  }
+  ,
+  // 从所有找到的 storage.json 文件中提取项目
+  extractAllProjects() {
+    try {
+      const searchResult = this.searchStorageJson()
+      if (!searchResult.success || searchResult.results.length === 0) {
+        return { success: false, message: '未找到 storage.json 文件', allProjects: [], sources: [] }
+      }
+
+      const allProjects = new Set()
+      const sources = []
+
+      searchResult.results.forEach(storageFile => {
+        const result = this.extractProjectsFromStorage(storageFile)
+        if (result.success) {
+          result.projects.forEach(p => allProjects.add(p))
+          sources.push({
+            editor: path.basename(path.dirname(path.dirname(path.dirname(storageFile)))), // Code/Qoder/Trae
+            path: storageFile,
+            projectCount: result.count
+          })
+        }
+      })
+
+      return {
+        success: true,
+        allProjects: Array.from(allProjects).sort(),
+        count: allProjects.size,
+        sources
+      }
+    } catch (error) {
+      return { success: false, message: error.message, allProjects: [], sources: [] }
+    }
+  }
 }

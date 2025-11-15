@@ -6,7 +6,27 @@ const SETTINGS_KEY = 'utools-plugin-template-settings'
 
 // 默认设置值
 const defaultSettings = {
-    theme: 'system'
+    theme: 'system',
+    editors: {
+        code: {
+            name: 'VS Code',
+            icon: 'img/code.png',
+            executablePath: '',
+            storagePath: ''
+        },
+        qoder: {
+            name: 'Qoder',
+            icon: 'img/qoder.png',
+            executablePath: '',
+            storagePath: ''
+        },
+        trae: {
+            name: 'Trae',
+            icon: 'img/trae.png',
+            executablePath: '',
+            storagePath: ''
+        }
+    }
 }
 
 // 从 dbStorage 加载设置
@@ -50,12 +70,26 @@ export function useSettingsStore() {
         set: (val) => { settings.value.theme = val }
     })
 
+    const editors = computed({
+        get: () => settings.value.editors,
+        set: (val) => { settings.value.editors = val }
+    })
+
     const setTheme = (theme) => { settings.value.theme = theme }
+
+    const setEditorConfig = (editorKey, config) => {
+        if (settings.value.editors[editorKey]) {
+            settings.value.editors[editorKey] = { ...settings.value.editors[editorKey], ...config }
+        }
+    }
+
     const resetToDefault = () => { settings.value = { ...defaultSettings } }
 
     return {
         theme,
+        editors,
         setTheme,
+        setEditorConfig,
         resetToDefault
     }
 }
