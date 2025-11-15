@@ -15,7 +15,8 @@ const defaultSettings = {
             commandName: 'code',
             storageKeyword: 'Code',
             executablePath: '',
-            storagePath: ''
+            storagePath: '',
+            editorType: 'vscode'
         },
         qoder: {
             id: 'qoder',
@@ -24,7 +25,8 @@ const defaultSettings = {
             commandName: 'qoder',
             storageKeyword: 'Qoder',
             executablePath: '',
-            storagePath: ''
+            storagePath: '',
+            editorType: 'vscode'
         },
         trae: {
             id: 'trae',
@@ -33,7 +35,28 @@ const defaultSettings = {
             commandName: 'trae',
             storageKeyword: 'Trae',
             executablePath: '',
-            storagePath: ''
+            storagePath: '',
+            editorType: 'vscode'
+        },
+        idea: {
+            id: 'idea',
+            name: 'IntelliJ IDEA',
+            icon: 'img/code.png',
+            commandName: 'idea',
+            storageKeyword: 'idea',
+            executablePath: '',
+            recentProjectsPath: '',
+            editorType: 'jetbrains'
+        },
+        studio: {
+            id: 'studio',
+            name: 'Android Studio',
+            icon: 'img/code.png',
+            commandName: 'studio',
+            storageKeyword: 'studio',
+            executablePath: '',
+            recentProjectsPath: '',
+            editorType: 'jetbrains'
         }
     }
 }
@@ -101,7 +124,9 @@ export function useSettingsStore() {
             commandName: editorData.commandName || '',
             storageKeyword: editorData.storageKeyword || '',
             executablePath: editorData.executablePath || '',
-            storagePath: editorData.storagePath || ''
+            storagePath: editorData.storagePath || '',
+            recentProjectsPath: editorData.recentProjectsPath || '', // JetBrains 系列
+            editorType: editorData.editorType || 'vscode' // 'vscode' 或 'jetbrains'
         }
         return id
     }

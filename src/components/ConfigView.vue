@@ -24,14 +24,18 @@ const editorForm = ref({
     commandName: '',
     storageKeyword: '',
     executablePath: '',
-    storagePath: ''
+    storagePath: '',
+    recentProjectsPath: '',
+    editorType: 'vscode' // 'vscode' 或 'jetbrains'
 });
 
 // 搜索状态
 const searching = ref({
     code: false,
     qoder: false,
-    trae: false
+    trae: false,
+    idea: false,
+    studio: false
 });
 
 const searchingAll = ref(false);
@@ -54,9 +58,18 @@ const searchEditorConfig = async (editorKey) => {
     setTimeout(async () => {
         try {
             const editor = editors.value[editorKey];
+            console.log(`======== 开始搜索编辑器: ${editorKey} ========`);
+            console.log('编辑器配置:', JSON.stringify(editor, null, 2));
+            const editorType = editor.editorType || 'vscode';
+            console.log('编辑器类型:', editorType);
+
+            if (!editorType || editorType === 'vscode') {
+                console.warn('警告: 编辑器类型未设置或为vscode,JetBrains编辑器应设置为jetbrains');
+            }
 
             // 搜索可执行文件路径
             let executablePath = '';
+            let iconPath = '';
             if (window.services && typeof window.services.findCommandPath === 'function') {
                 const commandName = editor.commandName || editorKey;
                 console.log(`搜索命令: ${commandName}`);
@@ -68,43 +81,103 @@ const searchEditorConfig = async (editorKey) => {
                     if (res.all && res.all.length > 1) {
                         console.log(`找到多个匹配项:`, res.all);
                     }
+
+                    // 尝试在同一目录查找图标（JetBrains 编辑器）
+                    if (editorType === 'jetbrains' && executablePath && window.services.findIconInBinDir) {
+                        console.log(`开始查找图标，路径: ${executablePath}, 命令名: ${editor.commandName}`);
+                        const iconRes = window.services.findIconInBinDir(executablePath, editor.commandName);
+                        console.log('图标查找结果:', iconRes);
+                        if (iconRes && iconRes.success) {
+                            iconPath = iconRes.path;
+                            console.log(`找到图标:`, iconPath);
+                        } else {
+                            console.log('未找到图标:', iconRes ? iconRes.message : '无返回结果');
+                        }
+                    }
                 } else {
                     console.warn(`未找到命令 ${commandName}:`, res.message, res.details);
                 }
             }
 
-            // 搜索 storage.json 路径
-            let storagePath = '';
-            if (window.services && typeof window.services.searchStorageJson === 'function') {
-                const res = window.services.searchStorageJson();
-                if (res && res.success && res.results.length > 0) {
-                    // 使用编辑器配置的 storageKeyword 来匹配
-                    const keyword = editor.storageKeyword || editor.name;
-                    console.log(`搜索 Storage 关键字: ${keyword}`);
-                    const matchedPath = res.results.find(p => p.includes(`\\${keyword}\\`));
-                    if (matchedPath) {
-                        storagePath = matchedPath;
-                        console.log(`找到 Storage 路径:`, storagePath);
-                    } else {
-                        console.log(`未匹配到包含 "${keyword}" 的路径，所有结果:`, res.results);
+            // 根据编辑器类型搜索项目文件
+            let projectFilePath = '';
+
+            if (editorType === 'vscode') {
+                // VSCode 系列：搜索 storage.json
+                if (window.services && typeof window.services.searchStorageJson === 'function') {
+                    const res = window.services.searchStorageJson();
+                    if (res && res.success && res.results.length > 0) {
+                        const keyword = editor.storageKeyword || editor.name;
+                        console.log(`搜索 Storage 关键字: ${keyword}`);
+                        const matchedPath = res.results.find(p => p.includes(`\\${keyword}\\`));
+                        if (matchedPath) {
+                            projectFilePath = matchedPath;
+                            console.log(`找到 Storage 路径:`, projectFilePath);
+                        } else {
+                            console.log(`未匹配到包含 "${keyword}" 的路径，所有结果:`, res.results);
+                        }
                     }
+                }
+            } else if (editorType === 'jetbrains') {
+                // JetBrains 系列：搜索 recentProjects.xml
+                console.log('开始搜索 JetBrains recentProjects.xml...');
+                if (window.services && typeof window.services.searchRecentProjectsXml === 'function') {
+                    const res = window.services.searchRecentProjectsXml();
+                    console.log('searchRecentProjectsXml 返回结果:', res);
+                    if (res && res.success && res.results.length > 0) {
+                        const keyword = editor.storageKeyword || editor.name;
+                        console.log(`搜索 RecentProjects 关键字: ${keyword}`);
+                        console.log('所有找到的文件:', res.results);
+                        // 不区分大小写匹配路径中的关键字
+                        const matchedPath = res.results.find(p => {
+                            const lowerPath = p.toLowerCase();
+                            const lowerKeyword = keyword.toLowerCase();
+                            return lowerPath.includes(`\\${lowerKeyword}\\`) || lowerPath.includes(lowerKeyword);
+                        });
+                        if (matchedPath) {
+                            projectFilePath = matchedPath;
+                            console.log(`找到 RecentProjects 路径:`, projectFilePath);
+                        } else {
+                            console.log(`未匹配到包含 "${keyword}" 的路径，所有结果:`, res.results);
+                        }
+                    } else {
+                        console.log('searchRecentProjectsXml 未找到文件或失败');
+                    }
+                } else {
+                    console.error('window.services.searchRecentProjectsXml 函数不存在');
                 }
             }
 
             // 更新配置
-            if (executablePath || storagePath) {
-                settingsStore.setEditorConfig(editorKey, {
-                    executablePath: executablePath || editor.executablePath,
-                    storagePath: storagePath || editor.storagePath
-                });
+            const updateData = {
+                executablePath: executablePath || editor.executablePath
+            };
 
-                if (executablePath && storagePath) {
-                    message.success(`已找到 ${editor.name} 的完整配置信息`);
-                } else if (executablePath) {
-                    message.success(`已找到 ${editor.name} 的可执行文件路径`);
-                } else {
-                    message.success(`已找到 ${editor.name} 的 Storage 路径`);
-                }
+            if (iconPath) {
+                updateData.icon = iconPath;
+            }
+
+            if (editorType === 'vscode') {
+                updateData.storagePath = projectFilePath || editor.storagePath;
+            } else if (editorType === 'jetbrains') {
+                updateData.recentProjectsPath = projectFilePath || editor.recentProjectsPath;
+            }
+
+            console.log('准备更新配置:', updateData);
+            console.log('projectFilePath:', projectFilePath);
+            console.log('executablePath:', executablePath);
+            console.log('iconPath:', iconPath);
+
+            if (executablePath || projectFilePath || iconPath) {
+                settingsStore.setEditorConfig(editorKey, updateData);
+                console.log('更新后的编辑器配置:', editors.value[editorKey]);
+
+                const foundItems = [];
+                if (executablePath) foundItems.push('可执行文件');
+                if (projectFilePath) foundItems.push(editorType === 'vscode' ? 'Storage 路径' : 'RecentProjects 路径');
+                if (iconPath) foundItems.push('图标');
+
+                message.success(`已找到 ${editor.name} 的${foundItems.join('、')}`);
             } else {
                 message.warning(`未找到 ${editor.name} 的配置信息，请检查命令名称是否正确`);
             }
@@ -145,10 +218,14 @@ const searchAllEditors = async () => {
 // 手动选择文件
 const selectFile = (editorKey, type) => {
     try {
-        const title = type === 'executable' ? '选择可执行文件' : '选择 storage.json 文件';
+        const title = type === 'executable' ? '选择可执行文件'
+            : type === 'recentProjects' ? '选择 recentProjects.xml 文件'
+                : '选择 storage.json 文件';
         const filters = type === 'executable'
             ? [{ name: '可执行文件', extensions: ['exe', 'cmd', 'bat'] }, { name: '所有文件', extensions: ['*'] }]
-            : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
+            : type === 'recentProjects'
+                ? [{ name: 'XML文件', extensions: ['xml'] }, { name: '所有文件', extensions: ['*'] }]
+                : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
 
         const openPath = window.utools.showOpenDialog({
             title,
@@ -159,7 +236,9 @@ const selectFile = (editorKey, type) => {
 
         if (openPath && openPath.length > 0) {
             const filePath = openPath[0];
-            const configKey = type === 'executable' ? 'executablePath' : 'storagePath';
+            const configKey = type === 'executable' ? 'executablePath'
+                : type === 'recentProjects' ? 'storagePath'
+                    : 'storagePath';
             settingsStore.setEditorConfig(editorKey, {
                 [configKey]: filePath
             });
@@ -277,7 +356,9 @@ const openAddEditorModal = () => {
         commandName: '',
         storageKeyword: '',
         executablePath: '',
-        storagePath: ''
+        storagePath: '',
+        recentProjectsPath: '',
+        editorType: 'vscode'
     };
     editorModalVisible.value = true;
 };
@@ -293,7 +374,9 @@ const openEditEditorModal = (editorKey) => {
         commandName: editor.commandName || '',
         storageKeyword: editor.storageKeyword || '',
         executablePath: editor.executablePath,
-        storagePath: editor.storagePath
+        storagePath: editor.storagePath || '',
+        recentProjectsPath: editor.recentProjectsPath || '',
+        editorType: editor.editorType || 'vscode'
     };
     editorModalVisible.value = true;
 };
@@ -334,10 +417,14 @@ const deleteEditor = (editorKey) => {
 // 在对话框中选择文件
 const selectFileInModal = (type) => {
     try {
-        const title = type === 'executable' ? '选择可执行文件' : '选择 storage.json 文件';
+        const title = type === 'executable' ? '选择可执行文件'
+            : type === 'recentProjects' ? '选择 recentProjects.xml 文件'
+                : '选择 storage.json 文件';
         const filters = type === 'executable'
             ? [{ name: '可执行文件', extensions: ['exe', 'cmd', 'bat'] }, { name: '所有文件', extensions: ['*'] }]
-            : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
+            : type === 'recentProjects'
+                ? [{ name: 'XML文件', extensions: ['xml'] }, { name: '所有文件', extensions: ['*'] }]
+                : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
 
         const openPath = window.utools.showOpenDialog({
             title,
@@ -349,6 +436,8 @@ const selectFileInModal = (type) => {
         if (openPath && openPath.length > 0) {
             if (type === 'executable') {
                 editorForm.value.executablePath = openPath[0];
+            } else if (type === 'recentProjects') {
+                editorForm.value.recentProjectsPath = openPath[0];
             } else {
                 editorForm.value.storagePath = openPath[0];
             }
@@ -457,12 +546,25 @@ const selectIconInModal = () => {
                 </a-button>
             </div>
 
-            <div class="editor-config-row">
-                <a-typography-text style="min-width: 100px;">Storage 路径:</a-typography-text>
+            <!-- VSCode 系列的 Storage 路径 -->
+            <div class="editor-config-row" v-if="!editor.editorType || editor.editorType === 'vscode'">
+                <a-typography-text style="min-width: 100px;">配置文件路径:</a-typography-text>
                 <a-input :value="editor.storagePath"
                     @update:value="(val) => settingsStore.setEditorConfig(key, { storagePath: val })"
                     placeholder="storage.json 文件路径" style="flex: 1;" />
                 <a-button @click="selectFile(key, 'storage')">
+                    <FolderOpenOutlined />
+                    选择
+                </a-button>
+            </div>
+
+            <!-- JetBrains 系列的 RecentProjects 路径 -->
+            <div class="editor-config-row" v-if="editor.editorType === 'jetbrains'">
+                <a-typography-text style="min-width: 100px;">配置文件路径:</a-typography-text>
+                <a-input :value="editor.recentProjectsPath"
+                    @update:value="(val) => settingsStore.setEditorConfig(key, { recentProjectsPath: val })"
+                    placeholder="recentProjects.xml 文件路径" style="flex: 1;" />
+                <a-button @click="selectFile(key, 'recentProjects')">
                     <FolderOpenOutlined />
                     选择
                 </a-button>
@@ -494,24 +596,32 @@ const selectIconInModal = () => {
             @ok="saveEditor" ok-text="保存" cancel-text="取消" width="600px">
             <a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
                 <a-form-item label="编辑器名称" required>
-                    <a-input v-model:value="editorForm.name" placeholder="如: Cursor" />
+                    <a-input v-model:value="editorForm.name" placeholder="如: Cursor / IDEA" />
+                </a-form-item>
+
+                <a-form-item label="编辑器类型" required>
+                    <a-radio-group v-model:value="editorForm.editorType">
+                        <a-radio value="vscode">VSCode 系列</a-radio>
+                        <a-radio value="jetbrains">JetBrains 系列</a-radio>
+                    </a-radio-group>
                 </a-form-item>
 
                 <a-form-item label="命令名称">
-                    <a-input v-model:value="editorForm.commandName" placeholder="用于自动搜索的命令名 (如: cursor)" />
+                    <a-input v-model:value="editorForm.commandName" placeholder="如果要使用自动搜索，请填充此属性" />
                     <template #extra>
                         <span style="font-size: 12px; color: #999;">
-                            自动搜索时使用此命令名在 PATH 中查找可执行文件
+                            该编辑器对应的终端命令，如code、cursor、idea等
                         </span>
                     </template>
                 </a-form-item>
 
-                <a-form-item label="Storage 关键字">
+                <a-form-item label="配置路径关键字">
                     <a-input v-model:value="editorForm.storageKeyword"
-                        placeholder="用于匹配 storage.json 的关键字 (如: Cursor)" />
+                        placeholder="自动搜索时用于匹配配置文件路径中的关键字，如: Cursor、IDEA" />
                     <template #extra>
                         <span style="font-size: 12px; color: #999;">
-                            自动搜索时用于匹配 storage.json 路径中的文件夹名
+                            {{ editorForm.editorType === 'jetbrains' ? '自动搜索时用于匹配 recentProjects.xml 路径中的文件夹名' :
+                                '自动搜索时用于匹配 storage.json 路径中的文件夹名' }}
                         </span>
                     </template>
                 </a-form-item>
@@ -524,6 +634,11 @@ const selectIconInModal = () => {
                             </a-button>
                         </template>
                     </a-input>
+                    <template #extra>
+                        <span style="font-size: 12px; color: #999;">
+                            JetBrains 系列会自动在命令同目录查找 .svg/.png/.ico 图标
+                        </span>
+                    </template>
                 </a-form-item>
 
                 <a-form-item label="可执行文件">
@@ -536,10 +651,20 @@ const selectIconInModal = () => {
                     </a-input>
                 </a-form-item>
 
-                <a-form-item label="Storage 路径">
+                <a-form-item label="Storage 路径" v-if="editorForm.editorType === 'vscode'">
                     <a-input v-model:value="editorForm.storagePath" placeholder="storage.json 文件路径">
                         <template #suffix>
                             <a-button type="link" size="small" @click="selectFileInModal('storage')">
+                                <FolderOpenOutlined />
+                            </a-button>
+                        </template>
+                    </a-input>
+                </a-form-item>
+
+                <a-form-item label="配置文件路径" v-if="editorForm.editorType === 'jetbrains'">
+                    <a-input v-model:value="editorForm.recentProjectsPath" placeholder="recentProjects.xml 文件路径">
+                        <template #suffix>
+                            <a-button type="link" size="small" @click="selectFileInModal('recentProjects')">
                                 <FolderOpenOutlined />
                             </a-button>
                         </template>

@@ -78,7 +78,18 @@ window.services = {
       // 使用 which.sync 同步查找命令
       // 设置选项以查找所有匹配项
       try {
-        const allPaths = which.sync(command, { all: true })
+        let allPaths = which.sync(command, { all: true })
+
+        // Windows 下去重(不区分大小写)
+        if (allPaths && allPaths.length > 1 && process.platform === 'win32') {
+          const seen = new Map()
+          allPaths = allPaths.filter(p => {
+            const lower = p.toLowerCase()
+            if (seen.has(lower)) return false
+            seen.set(lower, true)
+            return true
+          })
+        }
 
         if (!allPaths || allPaths.length === 0) {
           return {
@@ -88,16 +99,38 @@ window.services = {
           }
         }
 
-        // Windows 优先级: .cmd > .exe > .bat > 其他
-        // 其他平台直接使用第一个
+        // Windows 优先级: .bat > .cmd > .exe > 其他
+        // bat 文件通常在编辑器安装目录,cmd 可能来自 Toolbox
         const isWindows = process.platform === 'win32'
         let bestMatch
 
         if (isWindows) {
+          const batFile = allPaths.find((p) => /\.bat$/i.test(p))
           const cmdFile = allPaths.find((p) => /\.cmd$/i.test(p))
           const exeFile = allPaths.find((p) => /\.exe$/i.test(p))
-          const batFile = allPaths.find((p) => /\.bat$/i.test(p))
-          bestMatch = cmdFile || exeFile || batFile || allPaths[0]
+
+          // 优先使用 bat 文件
+          if (batFile) {
+            bestMatch = batFile
+          }
+          // 如果只有 cmd 文件(来自 Toolbox),尝试解析出 exe 路径
+          else if (cmdFile && !batFile && !exeFile) {
+            console.log('[findCommandPath] 只找到 cmd 文件,尝试解析 exe 路径')
+            const parseResult = this.parseCmdFile(cmdFile)
+            if (parseResult.success) {
+              bestMatch = parseResult.path
+              console.log('[findCommandPath] 使用解析出的 exe 路径:', bestMatch)
+            } else {
+              bestMatch = cmdFile
+              console.log('[findCommandPath] 解析失败,使用 cmd 文件')
+            }
+          }
+          // 否则按优先级选择
+          else {
+            bestMatch = cmdFile || exeFile || allPaths[0]
+          }
+
+          console.log(`[findCommandPath] Windows 优先级选择: bat=${batFile}, cmd=${cmdFile}, exe=${exeFile}, 最终=${bestMatch}`)
         } else {
           bestMatch = allPaths[0]
         }
@@ -129,16 +162,104 @@ window.services = {
     }
   }
   ,
+  // 解析 .cmd 文件,提取其中的 .exe 路径
+  parseCmdFile(cmdFilePath) {
+    try {
+      console.log('[parseCmdFile] 解析 cmd 文件:', cmdFilePath)
+      const content = fs.readFileSync(cmdFilePath, { encoding: 'utf-8' })
+
+      // 匹配 start 命令中的 exe 路径
+      // 支持两种格式:
+      // 1. start "" %waitarg% C:\Users\...\bin\pycharm64.exe %intellij_args%
+      // 2. start "" %waitarg% "C:\Users\...\bin\studio64.exe" %intellij_args%
+
+      // 先尝试匹配带引号的路径
+      let exeMatch = content.match(/start\s+""\s+(?:%\w+%\s+)?"([A-Z]:[^"]+\.exe)"/i)
+
+      // 如果没匹配到,尝试匹配不带引号的路径
+      if (!exeMatch) {
+        exeMatch = content.match(/start\s+""\s+(?:%\w+%\s+)?([A-Z]:[^\n\r%\s]+\.exe)/i)
+      }
+
+      if (exeMatch && exeMatch[1]) {
+        const exePath = exeMatch[1].trim()
+        console.log('[parseCmdFile] 找到 exe 路径:', exePath)
+
+        if (fs.existsSync(exePath)) {
+          return {
+            success: true,
+            path: exePath
+          }
+        } else {
+          console.log('[parseCmdFile] exe 文件不存在:', exePath)
+          return {
+            success: false,
+            message: 'exe 文件不存在'
+          }
+        }
+      }
+
+      console.log('[parseCmdFile] 未找到 exe 路径,文件内容前500字符:', content.substring(0, 500))
+      return {
+        success: false,
+        message: '未在 cmd 文件中找到 exe 路径'
+      }
+    } catch (error) {
+      console.error('[parseCmdFile] 解析失败:', error)
+      return {
+        success: false,
+        message: error.message
+      }
+    }
+  }
+  ,
+  // 在可执行文件目录中查找图标
+  findIconInBinDir(executablePath, baseName) {
+    try {
+      const binDir = path.dirname(executablePath)
+      const possibleIcons = [
+        path.join(binDir, baseName + '.svg'),
+        path.join(binDir, baseName + '.png'),
+        path.join(binDir, baseName + '.ico')
+      ]
+
+      for (const iconFile of possibleIcons) {
+        if (fs.existsSync(iconFile)) {
+          return {
+            success: true,
+            path: iconFile
+          }
+        }
+      }
+
+      return {
+        success: false,
+        message: '未找到图标文件'
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message
+      }
+    }
+  }
+  ,
   // 在指定目录下递归搜索文件
   searchFile(startPath, fileName, pathMustContain = null) {
     const results = []
+    let filesChecked = 0
+    let dirsChecked = 0
 
     function searchRecursive(currentPath, depth = 0) {
       // 限制搜索深度，避免搜索过深
-      if (depth > 10) return
+      if (depth > 10) {
+        console.log(`[searchFile] 达到最大深度限制 (${depth}):`, currentPath)
+        return
+      }
 
       try {
         const items = fs.readdirSync(currentPath)
+        dirsChecked++
 
         for (const item of items) {
           try {
@@ -146,15 +267,25 @@ window.services = {
             const stat = fs.statSync(fullPath)
 
             if (stat.isDirectory()) {
+              // 跳过 plugins 文件夹
+              if (item === 'plugins') {
+                console.log(`[searchFile] 跳过 plugins 目录: ${fullPath}`)
+                continue
+              }
               // 继续递归搜索
               searchRecursive(fullPath, depth + 1)
             } else if (stat.isFile() && item === fileName) {
+              filesChecked++
+              console.log(`[searchFile] 找到文件: ${fullPath}`)
               // 如果指定了路径必须包含的文件夹名
               if (pathMustContain) {
                 // 检查完整路径中是否包含该文件夹名
                 if (fullPath.includes(path.sep + pathMustContain + path.sep) ||
                   fullPath.includes(path.sep + pathMustContain)) {
+                  console.log(`[searchFile] 匹配关键字 "${pathMustContain}": ${fullPath}`)
                   results.push(fullPath)
+                } else {
+                  console.log(`[searchFile] 不匹配关键字 "${pathMustContain}": ${fullPath}`)
                 }
               } else {
                 results.push(fullPath)
@@ -167,13 +298,21 @@ window.services = {
         }
       } catch (err) {
         // 跳过无权限访问的目录
+        console.log(`[searchFile] 无法访问目录:`, currentPath, err.message)
       }
     }
 
     try {
+      console.log(`[searchFile] 开始搜索: startPath=${startPath}, fileName=${fileName}, pathMustContain=${pathMustContain}`)
+      if (!fs.existsSync(startPath)) {
+        console.log(`[searchFile] 起始路径不存在: ${startPath}`)
+        return { success: false, message: '起始路径不存在', results: [] }
+      }
       searchRecursive(startPath)
+      console.log(`[searchFile] 搜索完成: 检查了 ${dirsChecked} 个目录, ${filesChecked} 个匹配文件名, 最终结果 ${results.length} 个`)
       return { success: true, results, count: results.length }
     } catch (error) {
+      console.error(`[searchFile] 搜索出错:`, error)
       return { success: false, message: error.message, results: [] }
     }
   }
@@ -187,6 +326,50 @@ window.services = {
       // 搜索 storage.json，要求它在 globalStorage 文件夹下
       return this.searchFile(roamingPath, 'storage.json', 'globalStorage')
     } catch (error) {
+      return { success: false, message: error.message, results: [] }
+    }
+  },
+
+  // 搜索 JetBrains 系列编辑器的 recentProjects.xml 文件
+  searchRecentProjectsXml() {
+    try {
+      // 获取 AppData/Roaming 路径
+      const roamingPath = window.utools.getPath('appData')
+      console.log('[searchRecentProjectsXml] roamingPath:', roamingPath)
+      const results = []
+
+      // 搜索 JetBrains 目录下的编辑器文件夹，直接在 options 中查找
+      const jetbrainsPath = path.join(roamingPath, 'JetBrains')
+      console.log('[searchRecentProjectsXml] 搜索 JetBrains 目录:', jetbrainsPath)
+      if (fs.existsSync(jetbrainsPath)) {
+        const editorFolders = fs.readdirSync(jetbrainsPath)
+        for (const folder of editorFolders) {
+          const optionsPath = path.join(jetbrainsPath, folder, 'options', 'recentProjects.xml')
+          if (fs.existsSync(optionsPath)) {
+            console.log('[searchRecentProjectsXml] 找到 JetBrains 文件:', optionsPath)
+            results.push(optionsPath)
+          }
+        }
+      }
+
+      // 搜索 Google 目录下的编辑器文件夹 (Android Studio)
+      const googlePath = path.join(roamingPath, 'Google')
+      console.log('[searchRecentProjectsXml] 搜索 Google 目录:', googlePath)
+      if (fs.existsSync(googlePath)) {
+        const editorFolders = fs.readdirSync(googlePath)
+        for (const folder of editorFolders) {
+          const optionsPath = path.join(googlePath, folder, 'options', 'recentProjects.xml')
+          if (fs.existsSync(optionsPath)) {
+            console.log('[searchRecentProjectsXml] 找到 Google 文件:', optionsPath)
+            results.push(optionsPath)
+          }
+        }
+      }
+
+      console.log('[searchRecentProjectsXml] 最终结果:', { success: true, results, count: results.length })
+      return { success: true, results, count: results.length }
+    } catch (error) {
+      console.error('[searchRecentProjectsXml] 错误:', error)
       return { success: false, message: error.message, results: [] }
     }
   }
@@ -247,53 +430,137 @@ window.services = {
     } catch (error) {
       return { success: false, message: error.message, projects: [] }
     }
+  },
+
+  // 从 JetBrains recentProjects.xml 文件中提取项目路径
+  extractProjectsFromRecentProjectsXml(xmlFilePath) {
+    try {
+      const content = fs.readFileSync(xmlFilePath, { encoding: 'utf-8' })
+      const projects = new Set()
+
+      // 使用正则表达式提取项目路径
+      // 匹配: <entry key="C:/code/...">
+      const entryPattern = /<entry key="([^"]+)">/g
+      let match
+
+      while ((match = entryPattern.exec(content)) !== null) {
+        let projectPath = match[1]
+
+        // 将路径规范化
+        // C:/code/... -> C:\code\...
+        projectPath = projectPath.replace(/\//g, path.sep)
+
+        // 检查路径是否存在
+        if (fs.existsSync(projectPath)) {
+          projects.add(projectPath)
+        }
+      }
+
+      const projectsList = Array.from(projects)
+
+      return {
+        success: true,
+        projects: projectsList,
+        count: projectsList.length,
+        source: xmlFilePath
+      }
+    } catch (error) {
+      return { success: false, message: error.message, projects: [] }
+    }
   }
   ,
-  // 从所有找到的 storage.json 文件中提取项目
-  // 接收编辑器配置，优先使用配置的 storagePath
+  // 从所有找到的 storage.json 和 recentProjects.xml 文件中提取项目
+  // 接收编辑器配置，优先使用配置的 storagePath/recentProjectsPath
   extractAllProjects(editorsConfig) {
     try {
-      const storageFiles = []
+      const projectSources = []
 
       // 如果提供了编辑器配置，优先使用配置的路径
       if (editorsConfig) {
         Object.entries(editorsConfig).forEach(([key, config]) => {
+          // VSCode 系列：使用 storagePath
           if (config.storagePath && fs.existsSync(config.storagePath)) {
-            storageFiles.push({
+            projectSources.push({
               path: config.storagePath,
-              editorName: config.name || key
+              editorName: config.name || key,
+              type: 'vscode'
+            })
+          }
+          // JetBrains 系列：使用 recentProjectsPath
+          else if (config.recentProjectsPath && fs.existsSync(config.recentProjectsPath)) {
+            projectSources.push({
+              path: config.recentProjectsPath,
+              editorName: config.name || key,
+              type: 'jetbrains'
             })
           }
         })
       }
 
       // 如果没有配置或配置为空，回退到自动搜索
-      if (storageFiles.length === 0) {
-        const searchResult = this.searchStorageJson()
-        if (!searchResult.success || searchResult.results.length === 0) {
-          return { success: false, message: '未找到 storage.json 文件，请在配置页面设置编辑器路径', projects: [], editorSources: [] }
+      if (projectSources.length === 0) {
+        // 搜索 VSCode 系列
+        const storageResult = this.searchStorageJson()
+        if (storageResult.success && storageResult.results.length > 0) {
+          storageResult.results.forEach(storageFile => {
+            const editorName = path.basename(path.dirname(path.dirname(path.dirname(storageFile))))
+            projectSources.push({
+              path: storageFile,
+              editorName,
+              type: 'vscode'
+            })
+          })
         }
 
-        searchResult.results.forEach(storageFile => {
-          const editorName = path.basename(path.dirname(path.dirname(path.dirname(storageFile))))
-          storageFiles.push({
-            path: storageFile,
-            editorName
+        // 搜索 JetBrains 系列
+        const jetbrainsResult = this.searchRecentProjectsXml()
+        if (jetbrainsResult.success && jetbrainsResult.results.length > 0) {
+          jetbrainsResult.results.forEach(xmlFile => {
+            // 从路径中提取编辑器名称
+            // C:\...\JetBrains\IntelliJIdea2025.1\options\recentProjects.xml -> IntelliJIdea2025.1
+            // C:\...\Google\AndroidStudio2024.3.2\options\recentProjects.xml -> AndroidStudio2024.3.2
+            const parts = xmlFile.split(path.sep)
+            const optionsIndex = parts.lastIndexOf('options')
+            const editorName = optionsIndex > 0 ? parts[optionsIndex - 1] : 'JetBrains IDE'
+
+            projectSources.push({
+              path: xmlFile,
+              editorName,
+              type: 'jetbrains'
+            })
           })
-        })
+        }
+
+        if (projectSources.length === 0) {
+          return {
+            success: false,
+            message: '未找到 storage.json 或 recentProjects.xml 文件，请在配置页面设置编辑器路径',
+            projects: [],
+            editorSources: []
+          }
+        }
       }
 
       // 项目路径 -> 编辑器列表的映射
       const projectEditorMap = new Map()
       const editorSources = []
 
-      storageFiles.forEach(({ path: storageFile, editorName }) => {
-        const result = this.extractProjectsFromStorage(storageFile)
-        if (result.success) {
+      projectSources.forEach(({ path: sourcePath, editorName, type }) => {
+        let result
+
+        // 根据类型调用不同的提取函数
+        if (type === 'vscode') {
+          result = this.extractProjectsFromStorage(sourcePath)
+        } else if (type === 'jetbrains') {
+          result = this.extractProjectsFromRecentProjectsXml(sourcePath)
+        }
+
+        if (result && result.success) {
           editorSources.push({
             editor: editorName,
-            path: storageFile,
-            projectCount: result.count
+            path: sourcePath,
+            projectCount: result.count,
+            type: type
           })
 
           // 为每个项目记录编辑器来源
