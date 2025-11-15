@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { message } from 'ant-design-vue';
-import { FolderOpenOutlined, ReloadOutlined } from '@ant-design/icons-vue';
+import { ReloadOutlined } from '@ant-design/icons-vue';
 
 const settingsStore = useSettingsStore();
 
@@ -27,6 +27,20 @@ const availableEditors = computed(() => {
 const selectedEditors = ref([]);
 
 // 筛选后的项目（包括搜索和编辑器筛选）
+const existsCache = new Map();
+const pathExists = (p) => {
+  if (!p) return false;
+  const key = p.toLowerCase();
+  if (existsCache.has(key)) return existsCache.get(key);
+  try {
+    const ok = window.services && typeof window.services.pathExists === 'function' ? !!window.services.pathExists(p) : true;
+    existsCache.set(key, ok);
+    return ok;
+  } catch {
+    return true;
+  }
+};
+
 const filteredProjects = computed(() => {
   if (selectedEditors.value.length === 0) {
     return [];
@@ -36,6 +50,11 @@ const filteredProjects = computed(() => {
     // 项目至少有一个编辑器在选中列表中
     return project.editors.some(editor => selectedEditors.value.includes(editor));
   });
+
+  // 根据开关隐藏不存在的项目
+  if (settingsStore.hideMissingProjects && settingsStore.hideMissingProjects.value) {
+    result = result.filter(project => pathExists(project.path));
+  }
 
   // 如果有搜索关键字，进一步过滤
   if (searchKeyword.value.trim()) {
@@ -86,11 +105,9 @@ const loadProjects = async () => {
 // 在文件管理器中打开
 const openInFolder = (projectPath) => {
   try {
-    if (window.services && typeof window.services.showProjectInFolder === 'function') {
-      const res = window.services.showProjectInFolder(projectPath);
-      if (!res.success) {
-        message.error(`打开失败: ${res.message}`);
-      }
+    const res = window.services.showProjectInFolder(projectPath);
+    if (!res.success) {
+      message.error(`打开失败: ${res.message}`);
     }
   } catch (err) {
     message.error(`打开失败: ${err.message}`);
@@ -223,7 +240,6 @@ onBeforeUnmount(() => {
     <!-- 顶部筛选栏 -->
     <div class="filter-bar">
       <div class="filter-section">
-        <span class="filter-label">筛选编辑器：</span>
         <div class="editor-filters">
           <a-checkbox :checked="selectedEditors.length === availableEditors.length && availableEditors.length > 0"
             :indeterminate="selectedEditors.length > 0 && selectedEditors.length < availableEditors.length"
@@ -286,15 +302,11 @@ onBeforeUnmount(() => {
               :src="getEditorIcon(editor)" :alt="getEditorDisplayName(editor)"
               :title="`使用 ${getEditorDisplayName(editor)} 打开`" class="editor-icon"
               @click.stop="openWithEditor(project.path, editor)" />
-            <a-button type="text" size="small" @click.stop="openInFolder(project.path)" title="在文件管理器中打开">
-              <template #icon>
-                <FolderOpenOutlined />
-              </template>
-            </a-button>
           </div>
         </div>
 
-        <div class="project-path" :title="project.path" v-html="highlightText(project.path, searchKeyword)">
+        <div class="project-path" :title="`${project.path} - 点击在文件管理器中打开`" @click="openInFolder(project.path)"
+          v-html="highlightText(project.path, searchKeyword)">
         </div>
       </div>
     </div>
@@ -417,6 +429,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.project-path:hover {
+  color: var(--primary-color, #1890ff);
 }
 
 .editor-icon {

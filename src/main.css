@@ -15,7 +15,7 @@
 
 /* 深色主题 */
 :root[data-theme="dark"] {
-  --bg-color: #282c34;
+  --bg-color: #303133;
   --text-color: #e6e6e6;
   --scrollbar-track: #303133;
   --scrollbar-thumb: #666;

@@ -3,6 +3,44 @@ const path = require('node:path')
 
 // 通过 window 对象向渲染进程注入 nodejs 能力
 window.services = {
+  // 路径是否存在
+  pathExists(targetPath) {
+    try {
+      if (!targetPath || typeof targetPath !== 'string') return false
+      return fs.existsSync(targetPath)
+    } catch (_) {
+      return false
+    }
+  },
+  // 规范化项目路径，用于跨来源去重（大小写/分隔符/尾部分隔符）
+  normalizeProjectPath(originalPath) {
+    if (!originalPath || typeof originalPath !== 'string') {
+      return { key: '', displayPath: originalPath || '' }
+    }
+    let p = originalPath.trim()
+    // 将 URI 前缀去掉并解码（稳妥处理）
+    if (p.startsWith('file:///')) {
+      try { p = decodeURIComponent(p.replace('file:///', '')) } catch (_) { }
+    }
+    // 统一分隔符并归一化
+    p = p.replace(/[\/]+/g, path.sep)
+    p = path.normalize(p)
+    // 去除尾部分隔符（保留根，例如 C:\ 或 /）
+    const isWin = process.platform === 'win32'
+    if ((isWin && /^[a-zA-Z]:\\$/.test(p)) || (!isWin && p === path.sep)) {
+      // 根路径不处理
+    } else {
+      if (p.endsWith(path.sep)) p = p.slice(0, -1)
+    }
+    // Windows 使用不区分大小写的键，统一为小写作为 key
+    const key = isWin ? p.toLowerCase() : p
+    // 显示路径：在 Windows 上将盘符大写
+    let displayPath = p
+    if (isWin && /^[a-z]:\\/.test(displayPath)) {
+      displayPath = displayPath[0].toUpperCase() + displayPath.slice(1)
+    }
+    return { key, displayPath }
+  },
   // 读文件
   readFile(file) {
     return fs.readFileSync(file, { encoding: 'utf-8' })
@@ -451,7 +489,7 @@ window.services = {
         } catch (err) {
           return uri
         }
-      }).filter(p => p && fs.existsSync(p)) // 只返回存在的路径
+      }).filter(p => p) // 过滤掉空值
 
       return {
         success: true,
@@ -482,10 +520,8 @@ window.services = {
         // C:/code/... -> C:\code\...
         projectPath = projectPath.replace(/\//g, path.sep)
 
-        // 检查路径是否存在
-        if (fs.existsSync(projectPath)) {
-          projects.add(projectPath)
-        }
+        // 添加项目路径（不在这里检查是否存在，由 UI 层根据用户设置决定）
+        projects.add(projectPath)
       }
 
       const projectsList = Array.from(projects)
@@ -573,7 +609,7 @@ window.services = {
         }
       }
 
-      // 项目路径 -> 编辑器列表的映射
+      // 规范化后的项目路径 key -> { path: 显示路径, editors: [] }
       const projectEditorMap = new Map()
       const editorSources = []
 
@@ -595,22 +631,27 @@ window.services = {
             type: type
           })
 
-          // 为每个项目记录编辑器来源
+          // 为每个项目记录编辑器来源（按规范化键去重合并）
           result.projects.forEach(projectPath => {
-            if (!projectEditorMap.has(projectPath)) {
-              projectEditorMap.set(projectPath, [])
+            const norm = this.normalizeProjectPath(projectPath)
+            if (!norm.key) return
+            if (!projectEditorMap.has(norm.key)) {
+              projectEditorMap.set(norm.key, { path: norm.displayPath, editors: [] })
             }
-            projectEditorMap.get(projectPath).push(editorName)
+            const entry = projectEditorMap.get(norm.key)
+            // 优先保留规范化后的展示路径（首次加入的即可）
+            if (!entry.path) entry.path = norm.displayPath
+            entry.editors.push(editorName)
           })
         }
       })
 
       // 转换为数组格式，包含项目路径和编辑器列表
-      const projects = Array.from(projectEditorMap.entries()).map(([projectPath, editors]) => {
-        const projectName = path.basename(projectPath)
+      const projects = Array.from(projectEditorMap.values()).map(({ path: displayPath, editors }) => {
+        const projectName = path.basename(displayPath)
         return {
           name: projectName,
-          path: projectPath,
+          path: displayPath,
           editors: [...new Set(editors)] // 去重
         }
       }).sort((a, b) => a.name.localeCompare(b.name))

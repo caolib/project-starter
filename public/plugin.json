@@ -8,10 +8,11 @@
   },
   "features": [
     {
-      "code": "template",
-      "explain": "uTools 插件模板 - 请根据需要修改 feature 配置",
+      "code": "project-starter",
+      "explain": "本地项目启动器，快速打开最近使用的项目",
       "cmds": [
-        "template"
+        "项目启动器",
+        "Project Starter"
       ]
     }
   ]

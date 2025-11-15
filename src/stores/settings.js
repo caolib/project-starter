@@ -7,6 +7,7 @@ const SETTINGS_KEY = 'utools-plugin-template-settings'
 // 默认设置值
 const defaultSettings = {
     theme: 'system',
+    hideMissingProjects: true,
     editors: {
         code: {
             id: 'code',
@@ -102,6 +103,11 @@ export function useSettingsStore() {
         set: (val) => { settings.value.theme = val }
     })
 
+    const hideMissingProjects = computed({
+        get: () => settings.value.hideMissingProjects,
+        set: (val) => { settings.value.hideMissingProjects = !!val }
+    })
+
     const editors = computed({
         get: () => settings.value.editors,
         set: (val) => { settings.value.editors = val }
@@ -149,16 +155,23 @@ export function useSettingsStore() {
         }
     }
 
+    const resetEditorsToDefault = () => {
+        // 仅重置编辑器配置为默认值，其他设置保持不变
+        settings.value.editors = JSON.parse(JSON.stringify(defaultSettings.editors))
+    }
+
     const resetToDefault = () => { settings.value = { ...defaultSettings } }
 
     return {
         theme,
+        hideMissingProjects,
         editors,
         setTheme,
         setEditorConfig,
         addEditor,
         removeEditor,
         updateEditor,
+        resetEditorsToDefault,
         resetToDefault
     }
 }

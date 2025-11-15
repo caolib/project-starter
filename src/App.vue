@@ -103,7 +103,7 @@ const handleMenuClick = ({ key }) => {
         <Menu v-model:selectedKeys="currentView" mode="horizontal" :items="menuItems" @click="handleMenuClick"
           style="flex: 1; min-width: 0;" :theme="actualTheme === 'dark' ? 'dark' : 'light'" />
       </Header>
-      <Content :style="{ background: actualTheme === 'dark' ? '#282c34' : '#fff', padding: '0', minHeight: '0' }">
+      <Content :style="{ background: actualTheme === 'dark' ? '#303133' : '#fff', padding: '0', minHeight: '0' }">
         <HomeView v-if="currentView[0] === 'home'" :enterAction="enterAction" :key="currentView[0]" />
         <ConfigView v-else-if="currentView[0] === 'config'" />
       </Content>

@@ -3,13 +3,18 @@
 import { computed, ref, nextTick } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useSettingsStore } from '../stores/settings'
-import { ExportOutlined, ImportOutlined, SearchOutlined, FolderOpenOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons-vue';
+import { ExportOutlined, ImportOutlined, SearchOutlined, FolderOpenOutlined, PlusOutlined, DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons-vue';
 
 const settingsStore = useSettingsStore();
 
 const theme = computed({
     get: () => settingsStore.theme.value,
     set: (val) => { settingsStore.theme.value = val }
+});
+
+const hideMissingProjects = computed({
+    get: () => settingsStore.hideMissingProjects.value,
+    set: (val) => { settingsStore.hideMissingProjects.value = val }
 });
 
 const editors = computed(() => settingsStore.editors.value);
@@ -237,7 +242,7 @@ const selectFile = (editorKey, type) => {
         if (openPath && openPath.length > 0) {
             const filePath = openPath[0];
             const configKey = type === 'executable' ? 'executablePath'
-                : type === 'recentProjects' ? 'storagePath'
+                : type === 'recentProjects' ? 'recentProjectsPath'
                     : 'storagePath';
             settingsStore.setEditorConfig(editorKey, {
                 [configKey]: filePath
@@ -284,6 +289,25 @@ const saveData = () => {
     message.success("保存好了");
 }
 
+// 重置所有编辑器为默认
+const resetEditors = () => {
+    Modal.confirm({
+        title: '确认重置编辑器配置',
+        content: '此操作仅重置编辑器列表与配置为默认值，其他设置（如主题）不受影响。',
+        okText: '重置',
+        cancelText: '取消',
+        okType: 'danger',
+        onOk() {
+            try {
+                settingsStore.resetEditorsToDefault();
+                message.success('已重置编辑器配置为默认');
+            } catch (e) {
+                message.error(`重置失败: ${e.message}`);
+            }
+        }
+    });
+}
+
 // 导出配置
 const exportConfig = () => {
     try {
@@ -292,6 +316,7 @@ const exportConfig = () => {
             exportTime: new Date().toISOString(),
             settings: {
                 theme: settingsStore.theme.value,
+                hideMissingProjects: settingsStore.hideMissingProjects.value,
                 editors: settingsStore.editors.value
             }
         };
@@ -328,6 +353,7 @@ const importConfig = () => {
 
                     const s = config.settings;
                     if (s.theme !== undefined) settingsStore.setTheme(s.theme);
+                    if (s.hideMissingProjects !== undefined) settingsStore.hideMissingProjects.value = !!s.hideMissingProjects;
                     if (s.editors !== undefined) {
                         Object.keys(s.editors).forEach(key => {
                             settingsStore.setEditorConfig(key, s.editors[key]);
@@ -483,6 +509,11 @@ const selectIconInModal = () => {
             </a-radio-group>
         </div>
 
+        <div class="config-row" style="margin-top: 8px;">
+            <a-typography-text style="margin-right: 10px;">如果项目对应的目录已经不存在，则不显示该项目</a-typography-text>
+            <a-switch v-model:checked="hideMissingProjects" />
+        </div>
+
         <!-- 编辑器配置区域 -->
         <a-divider>编辑器配置</a-divider>
 
@@ -491,21 +522,29 @@ const selectIconInModal = () => {
                 <template #icon>
                     <SearchOutlined />
                 </template>
-                搜索全部
+                搜索填充全部
             </a-button>
-            <a-button type="dashed" @click="openAddEditorModal">
-                <template #icon>
-                    <PlusOutlined />
-                </template>
-                添加编辑器
-            </a-button>
+            <div style="display:flex; gap:8px;">
+                <a-button danger @click="resetEditors">
+                    <template #icon>
+                        <ReloadOutlined />
+                    </template>
+                    重置编辑器设置
+                </a-button>
+                <a-button type="dashed" @click="openAddEditorModal">
+                    <template #icon>
+                        <PlusOutlined />
+                    </template>
+                    添加编辑器
+                </a-button>
+            </div>
         </div>
 
         <div v-for="(editor, key) in editors" :key="key" class="editor-config-section">
             <div class="editor-header">
                 <img :src="editor.icon" class="editor-icon" :alt="editor.name" />
                 <a-typography-title :level="5" style="margin: 0; flex: 1;">{{ editor.name }}</a-typography-title>
-                <a-button type="link" size="small" @click="openEditEditorModal(key)">
+                <a-button size="small" @click="openEditEditorModal(key)">
                     <template #icon>
                         <EditOutlined />
                     </template>
@@ -515,7 +554,7 @@ const selectIconInModal = () => {
                     <template #icon>
                         <SearchOutlined />
                     </template>
-                    自动搜索
+                    搜索填充
                 </a-button>
                 <a-button danger size="small" @click="deleteEditor(key)">
                     <template #icon>
@@ -620,8 +659,7 @@ const selectIconInModal = () => {
                         placeholder="自动搜索时用于匹配配置文件路径中的关键字，如: Cursor、IDEA" />
                     <template #extra>
                         <span style="font-size: 12px; color: #999;">
-                            {{ editorForm.editorType === 'jetbrains' ? '自动搜索时用于匹配 recentProjects.xml 路径中的文件夹名' :
-                                '自动搜索时用于匹配 storage.json 路径中的文件夹名' }}
+                            自动搜索时用于匹配配置文件路径的关键字
                         </span>
                     </template>
                 </a-form-item>
