@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 import { message } from 'ant-design-vue';
 import { FolderOpenOutlined, ReloadOutlined } from '@ant-design/icons-vue';
@@ -15,6 +15,9 @@ const editorSources = ref([]);
 const loading = ref(false);
 const error = ref('');
 
+// 搜索关键字
+const searchKeyword = ref('');
+
 // 所有可用的编辑器（从实际数据中提取）
 const availableEditors = computed(() => {
   return editorSources.value.map(source => source.editor);
@@ -23,15 +26,27 @@ const availableEditors = computed(() => {
 // 筛选状态 - 默认全选
 const selectedEditors = ref([]);
 
-// 筛选后的项目
+// 筛选后的项目（包括搜索和编辑器筛选）
 const filteredProjects = computed(() => {
   if (selectedEditors.value.length === 0) {
     return [];
   }
-  return projects.value.filter(project => {
+
+  let result = projects.value.filter(project => {
     // 项目至少有一个编辑器在选中列表中
     return project.editors.some(editor => selectedEditors.value.includes(editor));
   });
+
+  // 如果有搜索关键字，进一步过滤
+  if (searchKeyword.value.trim()) {
+    const keyword = searchKeyword.value.toLowerCase().trim();
+    result = result.filter(project => {
+      return project.name.toLowerCase().includes(keyword) ||
+        project.path.toLowerCase().includes(keyword);
+    });
+  }
+
+  return result;
 });
 
 // 加载项目
@@ -141,6 +156,17 @@ const getEditorDisplayName = (editorName) => {
   return editorName;
 };
 
+// 高亮匹配文本
+const highlightText = (text, keyword) => {
+  if (!keyword || !keyword.trim()) {
+    return text;
+  }
+
+  const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escapedKeyword})`, 'gi');
+  return text.replace(regex, '<mark class="highlight">$1</mark>');
+};
+
 // 切换编辑器筛选
 const toggleEditor = (editorName) => {
   const index = selectedEditors.value.indexOf(editorName);
@@ -160,8 +186,35 @@ const toggleAll = () => {
   }
 };
 
+// 设置子输入框
+const setupSubInput = () => {
+  // 使用 nextTick 和 setTimeout 确保 DOM 完全渲染且 uTools 已初始化
+  nextTick(() => {
+    setTimeout(() => {
+      if (window.utools && typeof window.utools.setSubInput === 'function') {
+        window.utools.setSubInput(({ text }) => {
+          searchKeyword.value = text;
+        }, '搜索项目名称或路径...', true);
+      }
+    }, 100);
+  });
+};
+
+// 移除子输入框
+const removeSubInput = () => {
+  if (window.utools && typeof window.utools.removeFeature === 'function') {
+    window.utools.removeFeature();
+  }
+};
+
 onMounted(() => {
   loadProjects();
+  setupSubInput();
+});
+
+// 组件卸载前清理
+onBeforeUnmount(() => {
+  removeSubInput();
 });
 </script>
 
@@ -226,8 +279,7 @@ onMounted(() => {
     <div v-else class="projects-grid">
       <div v-for="project in filteredProjects" :key="project.path" class="project-card">
         <div class="project-header">
-          <div class="project-name" :title="project.name">
-            {{ project.name }}
+          <div class="project-name" :title="project.name" v-html="highlightText(project.name, searchKeyword)">
           </div>
           <div class="project-actions">
             <img v-for="editor in project.editors.filter(e => selectedEditors.includes(e))" :key="editor"
@@ -242,8 +294,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="project-path" :title="project.path">
-          {{ project.path }}
+        <div class="project-path" :title="project.path" v-html="highlightText(project.path, searchKeyword)">
         </div>
       </div>
     </div>
@@ -325,9 +376,7 @@ onMounted(() => {
   border: 1px solid var(--border-color, #e8e8e8);
   border-radius: 8px;
   padding: 10px;
-
   transition: all 0.3s;
-  cursor: pointer;
   width: fit-content;
   max-width: 500px;
 }
@@ -381,5 +430,20 @@ onMounted(() => {
 .editor-icon:hover {
   transform: scale(1.15);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 高亮样式 */
+:deep(.highlight) {
+  background-color: #ffeb3b;
+  color: #000;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.highlight {
+  background-color: yellow;
+  color: red;
+  padding: 0;
 }
 </style>

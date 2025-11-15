@@ -249,8 +249,8 @@ const importConfig = () => {
         <!-- 编辑器配置区域 -->
         <a-divider>编辑器配置</a-divider>
 
-        <div class="config-row" style="justify-content: flex-end; padding-top: 0;">
-            <a-button type="primary" size="large" :loading="searchingAll" @click="searchAllEditors">
+        <div class="config-row" style="justify-content: flex-start; padding-top: 0;">
+            <a-button type="primary" :loading="searchingAll" @click="searchAllEditors">
                 <template #icon>
                     <SearchOutlined />
                 </template>
@@ -281,7 +281,7 @@ const importConfig = () => {
             </div>
 
             <div class="editor-config-row">
-                <a-typography-text style="min-width: 100px;">可执行文件:</a-typography-text>
+                <a-typography-text style="min-width: 100px;">执行文件:</a-typography-text>
                 <a-input :value="editor.executablePath"
                     @update:value="(val) => settingsStore.setEditorConfig(key, { executablePath: val })"
                     placeholder="可执行文件路径 (如: C:\...\code.cmd)" style="flex: 1;" />
@@ -347,7 +347,7 @@ div.config-row {
 .editor-config-section {
     width: 100%;
     padding: 16px;
-    margin: 12px 0;
+    margin: 5px 0;
     border-radius: 8px;
     border: 1px solid var(--border-color, #e8e8e8);
 }

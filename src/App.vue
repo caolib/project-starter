@@ -79,6 +79,13 @@ onMounted(() => {
 
 const handleMenuClick = ({ key }) => {
   currentView.value = [key];
+
+  // 切换到配置页面时，移除子输入框
+  if (key === 'config') {
+    if (window.utools && typeof window.utools.removeFeature === 'function') {
+      window.utools.removeFeature();
+    }
+  }
 };
 </script>
 
@@ -97,7 +104,7 @@ const handleMenuClick = ({ key }) => {
           style="flex: 1; min-width: 0;" :theme="actualTheme === 'dark' ? 'dark' : 'light'" />
       </Header>
       <Content :style="{ background: actualTheme === 'dark' ? '#282c34' : '#fff', padding: '0', minHeight: '0' }">
-        <HomeView v-if="currentView[0] === 'home'" :enterAction="enterAction" />
+        <HomeView v-if="currentView[0] === 'home'" :enterAction="enterAction" :key="currentView[0]" />
         <ConfigView v-else-if="currentView[0] === 'config'" />
       </Content>
     </Layout>
