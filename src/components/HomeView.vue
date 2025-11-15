@@ -452,16 +452,8 @@ onBeforeUnmount(() => {
 
 /* 高亮样式 */
 :deep(.highlight) {
-  background-color: #ffeb3b;
-  color: #000;
-  padding: 2px 4px;
-  border-radius: 3px;
-  font-weight: 600;
-}
-
-.highlight {
-  background-color: yellow;
-  color: red;
+  background: transparent;
+  color: yellow;
   padding: 0;
 }
 </style>
