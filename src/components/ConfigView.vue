@@ -312,8 +312,6 @@ const resetEditors = () => {
 const exportConfig = () => {
     try {
         const configData = {
-            version: '1.0.0',
-            exportTime: new Date().toISOString(),
             settings: {
                 theme: settingsStore.theme.value,
                 hideMissingProjects: settingsStore.hideMissingProjects.value,
@@ -321,7 +319,14 @@ const exportConfig = () => {
             }
         };
 
-        const result = window.services.exportConfig(configData, 'utools-plugin-template-config.json');
+        // 生成包含日期的文件名 YYYYMMDD 格式
+        const now = new Date();
+        const dateStr = now.getFullYear() +
+            String(now.getMonth() + 1).padStart(2, '0') +
+            String(now.getDate()).padStart(2, '0');
+        const defaultFileName = `project-starter-${dateStr}.json`;
+
+        const result = window.services.exportConfig(configData, defaultFileName);
         if (result.success) {
             message.success(`配置已导出到: ${result.path}`);
         } else {
