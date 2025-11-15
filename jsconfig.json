@@ -1,0 +1,12 @@
+{
+    "compilerOptions": {
+        "types": [
+            "utools-api-types"
+        ]
+    },
+    "includes": [
+        "src/**/*.js",
+        "src/**/*.vue",
+        "preload.js"
+    ]
+}

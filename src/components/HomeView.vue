@@ -1,10 +1,62 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useSettingsStore } from '../stores/settings';
 
 const settingsStore = useSettingsStore();
 
 const currentTheme = computed(() => settingsStore.theme.value);
+const codePath = ref('未检索')
+const codeLoading = ref(false)
+const codeError = ref('')
+
+const storageFiles = ref([])
+const storageLoading = ref(false)
+const storageError = ref('')
+
+onMounted(() => {
+  if (window.services && typeof window.services.findCommandPath === 'function') {
+    try {
+      codeLoading.value = true
+      const res = window.services.findCommandPath('code')
+      if (res && res.success) {
+        codePath.value = res.path || (res.all && res.all.length ? res.all[0] : '未找到')
+      } else {
+        codeError.value = (res && res.message) || '未找到 code 路径'
+        codePath.value = ''
+      }
+    } catch (err) {
+      codeError.value = err && err.message ? err.message : String(err)
+      codePath.value = ''
+    } finally {
+      codeLoading.value = false
+    }
+  } else {
+    codeError.value = '预加载服务中未暴露 findCommandPath'
+    codePath.value = ''
+  }
+
+  // 搜索 storage.json 文件
+  if (window.services && typeof window.services.searchStorageJson === 'function') {
+    try {
+      storageLoading.value = true
+      const res = window.services.searchStorageJson()
+      if (res && res.success) {
+        storageFiles.value = res.results || []
+        if (storageFiles.value.length === 0) {
+          storageError.value = '未找到 storage.json 文件'
+        }
+      } else {
+        storageError.value = (res && res.message) || '搜索失败'
+      }
+    } catch (err) {
+      storageError.value = err && err.message ? err.message : String(err)
+    } finally {
+      storageLoading.value = false
+    }
+  } else {
+    storageError.value = '预加载服务中未暴露 searchStorageJson'
+  }
+})
 </script>
 
 <template>
@@ -24,6 +76,36 @@ const currentTheme = computed(() => settingsStore.theme.value);
         <li>在 `src/components/` 中添加你的页面与逻辑；`HomeView` 为示例主页。</li>
         <li>使用 `window.services`（预加载脚本）访问 Node 文件能力（导入/导出等）。</li>
       </ul>
+    </div>
+
+    <div style="margin-top: 18px;">
+      <a-typography-text strong>本地 VSCode 可执行路径：</a-typography-text>
+      <div style="margin-top:8px">
+        <template v-if="codeLoading">正在检索...</template>
+        <template v-else>
+          <div v-if="codeError" style="color: var(--warning-color, #d64545)">{{ codeError }}</div>
+          <div v-else-if="codePath">{{ codePath }}</div>
+          <div v-else>未找到 code 可执行路径（Windows: 可通过 `where.exe code` 手动确认）</div>
+        </template>
+      </div>
+    </div>
+
+    <div style="margin-top: 18px;">
+      <a-typography-text strong>storage.json 文件搜索结果：</a-typography-text>
+      <div style="margin-top:8px">
+        <template v-if="storageLoading">正在搜索...</template>
+        <template v-else>
+          <div v-if="storageError" style="color: var(--warning-color, #d64545)">{{ storageError }}</div>
+          <div v-else-if="storageFiles.length > 0">
+            <div style="margin-bottom: 8px">找到 {{ storageFiles.length }} 个文件：</div>
+            <div v-for="(file, index) in storageFiles" :key="index"
+              style="padding: 8px; background: var(--bg-color, #f5f5f5); margin-bottom: 4px; border-radius: 4px; font-size: 12px; word-break: break-all;">
+              {{ file }}
+            </div>
+          </div>
+          <div v-else>未找到 storage.json 文件</div>
+        </template>
+      </div>
     </div>
   </div>
 </template>

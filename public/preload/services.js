@@ -69,4 +69,91 @@ window.services = {
       return { success: false, message: error.message }
     }
   }
+  ,
+  // 在 Windows 上查找命令的可执行路径（使用 where.exe）
+  findCommandPath(command = 'code') {
+    try {
+      const { execSync } = require('child_process')
+      // 使用 where.exe 精确查询 windows 可执行路径
+      const out = execSync(`where.exe ${command}`, { encoding: 'utf-8' })
+      const lines = out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+
+      if (lines.length === 0) {
+        return { success: false, message: `未找到命令: ${command}` }
+      }
+
+      // 优先级：.cmd > .exe > .bat > 其他
+      const cmdFile = lines.find((l) => /\.cmd$/i.test(l))
+      const exeFile = lines.find((l) => /\.exe$/i.test(l))
+      const batFile = lines.find((l) => /\.bat$/i.test(l))
+
+      const bestMatch = cmdFile || exeFile || batFile || lines[0]
+
+      return { success: true, path: bestMatch, all: lines }
+    } catch (error) {
+      return { success: false, message: error.message }
+    }
+  }
+  ,
+  // 在指定目录下递归搜索文件
+  searchFile(startPath, fileName, pathMustContain = null) {
+    const results = []
+
+    function searchRecursive(currentPath, depth = 0) {
+      // 限制搜索深度，避免搜索过深
+      if (depth > 10) return
+
+      try {
+        const items = fs.readdirSync(currentPath)
+
+        for (const item of items) {
+          try {
+            const fullPath = path.join(currentPath, item)
+            const stat = fs.statSync(fullPath)
+
+            if (stat.isDirectory()) {
+              // 继续递归搜索
+              searchRecursive(fullPath, depth + 1)
+            } else if (stat.isFile() && item === fileName) {
+              // 如果指定了路径必须包含的文件夹名
+              if (pathMustContain) {
+                // 检查完整路径中是否包含该文件夹名
+                if (fullPath.includes(path.sep + pathMustContain + path.sep) ||
+                  fullPath.includes(path.sep + pathMustContain)) {
+                  results.push(fullPath)
+                }
+              } else {
+                results.push(fullPath)
+              }
+            }
+          } catch (err) {
+            // 跳过无权限访问的文件/文件夹
+            continue
+          }
+        }
+      } catch (err) {
+        // 跳过无权限访问的目录
+      }
+    }
+
+    try {
+      searchRecursive(startPath)
+      return { success: true, results, count: results.length }
+    } catch (error) {
+      return { success: false, message: error.message, results: [] }
+    }
+  }
+  ,
+  // 搜索 storage.json 文件（在 AppData/Roaming 下的 globalStorage 文件夹中）
+  searchStorageJson() {
+    try {
+      // 获取 AppData/Roaming 路径
+      const roamingPath = window.utools.getPath('appData')
+
+      // 搜索 storage.json，要求它在 globalStorage 文件夹下
+      return this.searchFile(roamingPath, 'storage.json', 'globalStorage')
+    } catch (error) {
+      return { success: false, message: error.message, results: [] }
+    }
+  }
 }

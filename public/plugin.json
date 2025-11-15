@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/uTools-Labs/utools-api-types/refs/heads/main/resource/utools.schema.json",
+  "$schema": "../node_modules/utools-api-types/resource/utools.schema.json",
   "main": "index.html",
   "preload": "preload/services.js",
   "logo": "logo.png",
