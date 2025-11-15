@@ -70,28 +70,62 @@ window.services = {
     }
   }
   ,
-  // 在 Windows 上查找命令的可执行路径（使用 where.exe）
+  // 跨平台查找命令的可执行路径（使用 which 包）
   findCommandPath(command = 'code') {
     try {
-      const { execSync } = require('child_process')
-      // 使用 where.exe 精确查询 windows 可执行路径
-      const out = execSync(`where.exe ${command}`, { encoding: 'utf-8' })
-      const lines = out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+      const which = require('which')
 
-      if (lines.length === 0) {
-        return { success: false, message: `未找到命令: ${command}` }
+      // 使用 which.sync 同步查找命令
+      // 设置选项以查找所有匹配项
+      try {
+        const allPaths = which.sync(command, { all: true })
+
+        if (!allPaths || allPaths.length === 0) {
+          return {
+            success: false,
+            message: `未找到命令: ${command}`,
+            command: command
+          }
+        }
+
+        // Windows 优先级: .cmd > .exe > .bat > 其他
+        // 其他平台直接使用第一个
+        const isWindows = process.platform === 'win32'
+        let bestMatch
+
+        if (isWindows) {
+          const cmdFile = allPaths.find((p) => /\.cmd$/i.test(p))
+          const exeFile = allPaths.find((p) => /\.exe$/i.test(p))
+          const batFile = allPaths.find((p) => /\.bat$/i.test(p))
+          bestMatch = cmdFile || exeFile || batFile || allPaths[0]
+        } else {
+          bestMatch = allPaths[0]
+        }
+
+        return {
+          success: true,
+          path: bestMatch,
+          all: allPaths,
+          command: command,
+          platform: process.platform
+        }
+      } catch (error) {
+        // which 抛出异常表示未找到命令
+        return {
+          success: false,
+          message: `未找到命令: ${command}`,
+          details: error.message,
+          command: command,
+          platform: process.platform
+        }
       }
-
-      // 优先级：.cmd > .exe > .bat > 其他
-      const cmdFile = lines.find((l) => /\.cmd$/i.test(l))
-      const exeFile = lines.find((l) => /\.exe$/i.test(l))
-      const batFile = lines.find((l) => /\.bat$/i.test(l))
-
-      const bestMatch = cmdFile || exeFile || batFile || lines[0]
-
-      return { success: true, path: bestMatch, all: lines }
     } catch (error) {
-      return { success: false, message: error.message }
+      return {
+        success: false,
+        message: `查找命令时出错: ${error.message}`,
+        stack: error.stack,
+        command: command
+      }
     }
   }
   ,

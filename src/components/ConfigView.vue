@@ -3,7 +3,7 @@
 import { computed, ref, nextTick } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useSettingsStore } from '../stores/settings'
-import { ExportOutlined, ImportOutlined, SearchOutlined, FolderOpenOutlined } from '@ant-design/icons-vue';
+import { ExportOutlined, ImportOutlined, SearchOutlined, FolderOpenOutlined, PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons-vue';
 
 const settingsStore = useSettingsStore();
 
@@ -13,6 +13,19 @@ const theme = computed({
 });
 
 const editors = computed(() => settingsStore.editors.value);
+
+// 添加/编辑编辑器的对话框
+const editorModalVisible = ref(false);
+const editorFormMode = ref('add'); // 'add' 或 'edit'
+const currentEditingKey = ref('');
+const editorForm = ref({
+    name: '',
+    icon: 'img/code.png',
+    commandName: '',
+    storageKeyword: '',
+    executablePath: '',
+    storagePath: ''
+});
 
 // 搜索状态
 const searching = ref({
@@ -40,13 +53,23 @@ const searchEditorConfig = async (editorKey) => {
     // 使用setTimeout让UI有时间渲染
     setTimeout(async () => {
         try {
+            const editor = editors.value[editorKey];
+
             // 搜索可执行文件路径
             let executablePath = '';
             if (window.services && typeof window.services.findCommandPath === 'function') {
-                const cmdMap = { code: 'code', qoder: 'qoder', trae: 'trae' };
-                const res = window.services.findCommandPath(cmdMap[editorKey]);
+                const commandName = editor.commandName || editorKey;
+                console.log(`搜索命令: ${commandName}`);
+                const res = window.services.findCommandPath(commandName);
+                console.log('搜索结果:', res);
+
                 if (res && res.success) {
                     executablePath = res.path || '';
+                    if (res.all && res.all.length > 1) {
+                        console.log(`找到多个匹配项:`, res.all);
+                    }
+                } else {
+                    console.warn(`未找到命令 ${commandName}:`, res.message, res.details);
                 }
             }
 
@@ -55,11 +78,15 @@ const searchEditorConfig = async (editorKey) => {
             if (window.services && typeof window.services.searchStorageJson === 'function') {
                 const res = window.services.searchStorageJson();
                 if (res && res.success && res.results.length > 0) {
-                    // 根据编辑器名称匹配 storage.json 路径
-                    const editorNameMap = { code: 'Code', qoder: 'Qoder', trae: 'Trae' };
-                    const matchedPath = res.results.find(p => p.includes(`\\${editorNameMap[editorKey]}\\`));
+                    // 使用编辑器配置的 storageKeyword 来匹配
+                    const keyword = editor.storageKeyword || editor.name;
+                    console.log(`搜索 Storage 关键字: ${keyword}`);
+                    const matchedPath = res.results.find(p => p.includes(`\\${keyword}\\`));
                     if (matchedPath) {
                         storagePath = matchedPath;
+                        console.log(`找到 Storage 路径:`, storagePath);
+                    } else {
+                        console.log(`未匹配到包含 "${keyword}" 的路径，所有结果:`, res.results);
                     }
                 }
             }
@@ -67,14 +94,22 @@ const searchEditorConfig = async (editorKey) => {
             // 更新配置
             if (executablePath || storagePath) {
                 settingsStore.setEditorConfig(editorKey, {
-                    executablePath: executablePath || editors.value[editorKey].executablePath,
-                    storagePath: storagePath || editors.value[editorKey].storagePath
+                    executablePath: executablePath || editor.executablePath,
+                    storagePath: storagePath || editor.storagePath
                 });
-                message.success(`已找到 ${editors.value[editorKey].name} 的配置信息`);
+
+                if (executablePath && storagePath) {
+                    message.success(`已找到 ${editor.name} 的完整配置信息`);
+                } else if (executablePath) {
+                    message.success(`已找到 ${editor.name} 的可执行文件路径`);
+                } else {
+                    message.success(`已找到 ${editor.name} 的 Storage 路径`);
+                }
             } else {
-                message.warning(`未找到 ${editors.value[editorKey].name} 的配置信息`);
+                message.warning(`未找到 ${editor.name} 的配置信息，请检查命令名称是否正确`);
             }
         } catch (error) {
+            console.error('搜索失败:', error);
             message.error(`搜索失败: ${error.message}`);
         } finally {
             searching.value[editorKey] = false;
@@ -233,6 +268,119 @@ const importConfig = () => {
     });
 };
 
+// 打开添加编辑器对话框
+const openAddEditorModal = () => {
+    editorFormMode.value = 'add';
+    editorForm.value = {
+        name: '',
+        icon: 'img/code.png',
+        commandName: '',
+        storageKeyword: '',
+        executablePath: '',
+        storagePath: ''
+    };
+    editorModalVisible.value = true;
+};
+
+// 打开编辑编辑器对话框
+const openEditEditorModal = (editorKey) => {
+    editorFormMode.value = 'edit';
+    currentEditingKey.value = editorKey;
+    const editor = editors.value[editorKey];
+    editorForm.value = {
+        name: editor.name,
+        icon: editor.icon,
+        commandName: editor.commandName || '',
+        storageKeyword: editor.storageKeyword || '',
+        executablePath: editor.executablePath,
+        storagePath: editor.storagePath
+    };
+    editorModalVisible.value = true;
+};
+
+// 保存编辑器
+const saveEditor = () => {
+    if (!editorForm.value.name.trim()) {
+        message.warning('请输入编辑器名称');
+        return;
+    }
+
+    if (editorFormMode.value === 'add') {
+        settingsStore.addEditor(editorForm.value);
+        message.success('编辑器已添加');
+    } else {
+        settingsStore.updateEditor(currentEditingKey.value, editorForm.value);
+        message.success('编辑器已更新');
+    }
+
+    editorModalVisible.value = false;
+};
+
+// 删除编辑器
+const deleteEditor = (editorKey) => {
+    Modal.confirm({
+        title: '确认删除',
+        content: `确定要删除编辑器 "${editors.value[editorKey].name}" 吗？`,
+        okText: '删除',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk() {
+            settingsStore.removeEditor(editorKey);
+            message.success('编辑器已删除');
+        }
+    });
+};
+
+// 在对话框中选择文件
+const selectFileInModal = (type) => {
+    try {
+        const title = type === 'executable' ? '选择可执行文件' : '选择 storage.json 文件';
+        const filters = type === 'executable'
+            ? [{ name: '可执行文件', extensions: ['exe', 'cmd', 'bat'] }, { name: '所有文件', extensions: ['*'] }]
+            : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
+
+        const openPath = window.utools.showOpenDialog({
+            title,
+            buttonLabel: '选择',
+            filters,
+            properties: ['openFile']
+        });
+
+        if (openPath && openPath.length > 0) {
+            if (type === 'executable') {
+                editorForm.value.executablePath = openPath[0];
+            } else {
+                editorForm.value.storagePath = openPath[0];
+            }
+            message.success('已选择文件');
+        }
+    } catch (error) {
+        message.error(`选择文件失败: ${error.message}`);
+    }
+};
+
+// 在对话框中选择图标
+const selectIconInModal = () => {
+    try {
+        const openPath = window.utools.showOpenDialog({
+            title: '选择图标文件',
+            buttonLabel: '选择',
+            filters: [
+                { name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'svg', 'ico'] },
+                { name: '所有文件', extensions: ['*'] }
+            ],
+            properties: ['openFile']
+        });
+
+        if (openPath && openPath.length > 0) {
+            editorForm.value.icon = openPath[0];
+            message.success('图标已选择');
+        }
+    } catch (error) {
+        message.error(`选择图标失败: ${error.message}`);
+    }
+};
+
 </script>
 
 <template>
@@ -249,24 +397,42 @@ const importConfig = () => {
         <!-- 编辑器配置区域 -->
         <a-divider>编辑器配置</a-divider>
 
-        <div class="config-row" style="justify-content: flex-start; padding-top: 0;">
+        <div class="config-row" style="justify-content: space-between; padding-top: 0;">
             <a-button type="primary" :loading="searchingAll" @click="searchAllEditors">
                 <template #icon>
                     <SearchOutlined />
                 </template>
-                一键搜索全部
+                搜索全部
+            </a-button>
+            <a-button type="dashed" @click="openAddEditorModal">
+                <template #icon>
+                    <PlusOutlined />
+                </template>
+                添加编辑器
             </a-button>
         </div>
 
         <div v-for="(editor, key) in editors" :key="key" class="editor-config-section">
             <div class="editor-header">
                 <img :src="editor.icon" class="editor-icon" :alt="editor.name" />
-                <a-typography-title :level="5" style="margin: 0;">{{ editor.name }}</a-typography-title>
+                <a-typography-title :level="5" style="margin: 0; flex: 1;">{{ editor.name }}</a-typography-title>
+                <a-button type="link" size="small" @click="openEditEditorModal(key)">
+                    <template #icon>
+                        <EditOutlined />
+                    </template>
+                    编辑
+                </a-button>
                 <a-button type="primary" size="small" :loading="searching[key]" @click="searchEditorConfig(key)">
                     <template #icon>
                         <SearchOutlined />
                     </template>
                     自动搜索
+                </a-button>
+                <a-button danger size="small" @click="deleteEditor(key)">
+                    <template #icon>
+                        <DeleteOutlined />
+                    </template>
+                    删除
                 </a-button>
             </div>
 
@@ -322,6 +488,65 @@ const importConfig = () => {
                 <a-button danger>重置</a-button>
             </a-popconfirm>
         </div>
+
+        <!-- 添加/编辑编辑器对话框 -->
+        <a-modal v-model:open="editorModalVisible" :title="editorFormMode === 'add' ? '添加编辑器' : '编辑编辑器'"
+            @ok="saveEditor" ok-text="保存" cancel-text="取消" width="600px">
+            <a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
+                <a-form-item label="编辑器名称" required>
+                    <a-input v-model:value="editorForm.name" placeholder="如: Cursor" />
+                </a-form-item>
+
+                <a-form-item label="命令名称">
+                    <a-input v-model:value="editorForm.commandName" placeholder="用于自动搜索的命令名 (如: cursor)" />
+                    <template #extra>
+                        <span style="font-size: 12px; color: #999;">
+                            自动搜索时使用此命令名在 PATH 中查找可执行文件
+                        </span>
+                    </template>
+                </a-form-item>
+
+                <a-form-item label="Storage 关键字">
+                    <a-input v-model:value="editorForm.storageKeyword"
+                        placeholder="用于匹配 storage.json 的关键字 (如: Cursor)" />
+                    <template #extra>
+                        <span style="font-size: 12px; color: #999;">
+                            自动搜索时用于匹配 storage.json 路径中的文件夹名
+                        </span>
+                    </template>
+                </a-form-item>
+
+                <a-form-item label="图标路径">
+                    <a-input v-model:value="editorForm.icon" placeholder="图标文件路径">
+                        <template #suffix>
+                            <a-button type="link" size="small" @click="selectIconInModal">
+                                <FolderOpenOutlined />
+                            </a-button>
+                        </template>
+                    </a-input>
+                </a-form-item>
+
+                <a-form-item label="可执行文件">
+                    <a-input v-model:value="editorForm.executablePath" placeholder="可执行文件路径">
+                        <template #suffix>
+                            <a-button type="link" size="small" @click="selectFileInModal('executable')">
+                                <FolderOpenOutlined />
+                            </a-button>
+                        </template>
+                    </a-input>
+                </a-form-item>
+
+                <a-form-item label="Storage 路径">
+                    <a-input v-model:value="editorForm.storagePath" placeholder="storage.json 文件路径">
+                        <template #suffix>
+                            <a-button type="link" size="small" @click="selectFileInModal('storage')">
+                                <FolderOpenOutlined />
+                            </a-button>
+                        </template>
+                    </a-input>
+                </a-form-item>
+            </a-form>
+        </a-modal>
     </div>
 </template>
 

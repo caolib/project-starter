@@ -9,20 +9,29 @@ const defaultSettings = {
     theme: 'system',
     editors: {
         code: {
+            id: 'code',
             name: 'VS Code',
             icon: 'img/code.png',
+            commandName: 'code',
+            storageKeyword: 'Code',
             executablePath: '',
             storagePath: ''
         },
         qoder: {
+            id: 'qoder',
             name: 'Qoder',
             icon: 'img/qoder.png',
+            commandName: 'qoder',
+            storageKeyword: 'Qoder',
             executablePath: '',
             storagePath: ''
         },
         trae: {
+            id: 'trae',
             name: 'Trae',
             icon: 'img/trae.png',
+            commandName: 'trae',
+            storageKeyword: 'Trae',
             executablePath: '',
             storagePath: ''
         }
@@ -83,6 +92,38 @@ export function useSettingsStore() {
         }
     }
 
+    const addEditor = (editorData) => {
+        const id = editorData.id || `editor_${Date.now()}`
+        settings.value.editors[id] = {
+            id,
+            name: editorData.name || '新编辑器',
+            icon: editorData.icon || 'img/code.png',
+            commandName: editorData.commandName || '',
+            storageKeyword: editorData.storageKeyword || '',
+            executablePath: editorData.executablePath || '',
+            storagePath: editorData.storagePath || ''
+        }
+        return id
+    }
+
+    const removeEditor = (editorKey) => {
+        if (settings.value.editors[editorKey]) {
+            delete settings.value.editors[editorKey]
+            // 触发响应式更新
+            settings.value = { ...settings.value }
+        }
+    }
+
+    const updateEditor = (editorKey, newData) => {
+        if (settings.value.editors[editorKey]) {
+            settings.value.editors[editorKey] = {
+                ...settings.value.editors[editorKey],
+                ...newData,
+                id: editorKey // 保持 id 不变
+            }
+        }
+    }
+
     const resetToDefault = () => { settings.value = { ...defaultSettings } }
 
     return {
@@ -90,6 +131,9 @@ export function useSettingsStore() {
         editors,
         setTheme,
         setEditorConfig,
+        addEditor,
+        removeEditor,
+        updateEditor,
         resetToDefault
     }
 }
