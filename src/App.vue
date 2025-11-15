@@ -1,9 +1,10 @@
 <script setup>
 import { onMounted, ref, h, watch, computed } from 'vue';
 import { ConfigProvider, Layout, Menu, theme as antTheme } from 'ant-design-vue';
-import { FileTextOutlined, SettingOutlined } from '@ant-design/icons-vue';
+import { FileTextOutlined, SettingOutlined, InfoCircleOutlined } from '@ant-design/icons-vue';
 import HomeView from './components/HomeView.vue';
 import ConfigView from './components/ConfigView.vue';
+import AboutView from './components/AboutView.vue';
 import { useSettingsStore } from './stores/settings';
 
 const { Header, Content } = Layout;
@@ -51,6 +52,11 @@ const menuItems = [
     icon: () => h(SettingOutlined),
     label: '配置',
   },
+  {
+    key: 'about',
+    icon: () => h(InfoCircleOutlined),
+    label: '关于',
+  }
 ];
 
 // Note: 功能命令需要在具体插件模板中自行注册，模板保留主题与配置逻辑
@@ -98,14 +104,14 @@ const handleMenuClick = ({ key }) => {
         padding: '0',
         lineHeight: '32px',
         height: '32px',
-
       }">
         <Menu v-model:selectedKeys="currentView" mode="horizontal" :items="menuItems" @click="handleMenuClick"
           style="flex: 1; min-width: 0;" :theme="actualTheme === 'dark' ? 'dark' : 'light'" />
       </Header>
-      <Content :style="{ background: actualTheme === 'dark' ? '#303133' : '#fff', padding: '0', minHeight: '0' }">
+      <Content :style="{ background: actualTheme === 'dark' ? '#303133' : '#f4f4f4', padding: '0', minHeight: '0' }">
         <HomeView v-if="currentView[0] === 'home'" :enterAction="enterAction" :key="currentView[0]" />
         <ConfigView v-else-if="currentView[0] === 'config'" />
+        <AboutView v-else-if="currentView[0] === 'about'" />
       </Content>
     </Layout>
   </ConfigProvider>
