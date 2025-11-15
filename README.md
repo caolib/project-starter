@@ -1,23 +1,29 @@
-# uTools 插件开发模板
+# Project Starter / 项目启动器
 
-此仓库已被简化为一个通用的 uTools 插件模板。保留的通用功能：
+一个聚合多种本地 IDE/编辑器最近项目并快速打开的 uTools 插件。支持 VSCode 系列与 JetBrains 系列，提供路径规范化、重复合并、过滤不存在项目、快捷搜索、动态编辑器配置等特性。
 
-- 深/浅/跟随系统主题支持（基于 Ant Design 主题切换）
-- 配置持久化（使用 `window.utools.dbStorage`，见 `src/utils/store.js`）
-- 导入/导出配置的预加载 API（`public/preload/services.js`）
 
-快速开始：
-
-1. 编辑 `public/plugin.json` 中的 `features`，添加你的功能点（code/cmds/explain）。
-2. 在 `src/components/` 中实现你的页面和逻辑，`HomeView.vue` 为示例主页，`ConfigView.vue` 为示例配置页面。
-3. 如需文件读写或导入导出，使用 `window.services` 中提供的方法。
-4. 启动开发服务器：
+## 安装与开发
 
 ```pwsh
-pnpm dev
+pnpm install
+pnpm dev   # 启动本地开发（plugin.json development 指向 http://localhost:5173）
 ```
 
-更多说明见项目内文件注释。
+构建：
 
+```pwsh
+pnpm build
+```
 
+然后使用utools开发工具进行打包
 
+## 使用说明
+
+1. 打开插件后进入“主页”自动聚合并展示项目列表。
+2. 顶部勾选要显示的编辑器来源，可使用输入框搜索项目（名称或路径）。
+3. 点击项目路径打开所在文件夹，点击编辑器图标用对应 IDE 打开。
+4. 在“配置”页面：
+	 - 搜索填充：自动查找命令路径与配置文件路径，并尝试图标获取。
+	 - 添加编辑器：自定义命令名（例如 `cursor`）与路径关键字。
+	 - 切换“隐藏不存在项目”以过滤已删除目录。

@@ -283,6 +283,7 @@ onBeforeUnmount(() => {
     <!-- 错误状态 -->
     <div v-else-if="error" class="error-state">
       <p>{{ error }}</p>
+      <p>第一次使用请前往配置界面，点击"搜索填充全部"或者手动完成编辑器设置</p>
       <a-button type="primary" @click="loadProjects">重试</a-button>
     </div>
 

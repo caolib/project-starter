@@ -108,99 +108,93 @@ window.services = {
     }
   }
   ,
-  // 跨平台查找命令的可执行路径（使用 which 包）
+  // 跨平台查找命令的可执行路径（使用系统命令）
   findCommandPath(command = 'code') {
-    const startTime = Date.now()
     try {
-      const which = require('which')
+      const { execSync } = require('child_process')
+      const isWindows = process.platform === 'win32'
 
-      // 使用 which.sync 同步查找命令
-      // 设置选项以查找所有匹配项
+      let allPaths = []
+
       try {
-        let allPaths = which.sync(command, { all: true })
-        const whichTime = Date.now() - startTime
-        // console.log(`[findCommandPath] which.sync 耗时 ${whichTime}ms`)
-
-        // Windows 下去重(不区分大小写)
-        if (allPaths && allPaths.length > 1 && process.platform === 'win32') {
-          const seen = new Map()
-          allPaths = allPaths.filter(p => {
-            const lower = p.toLowerCase()
-            if (seen.has(lower)) return false
-            seen.set(lower, true)
-            return true
-          })
-        }
-
-        if (!allPaths || allPaths.length === 0) {
-          return {
-            success: false,
-            message: `未找到命令: ${command}`,
-            command: command
-          }
-        }
-
-        // Windows 优先级: .bat > .cmd > .exe > 其他
-        // bat 文件通常在编辑器安装目录,cmd 可能来自 Toolbox
-        const isWindows = process.platform === 'win32'
-        let bestMatch
-
         if (isWindows) {
-          const batFile = allPaths.find((p) => /\.bat$/i.test(p))
-          const cmdFile = allPaths.find((p) => /\.cmd$/i.test(p))
-          const exeFile = allPaths.find((p) => /\.exe$/i.test(p))
-
-          // 优先使用 bat 文件
-          if (batFile) {
-            bestMatch = batFile
-          }
-          // 如果只有 cmd 文件(来自 Toolbox),尝试解析出 exe 路径
-          else if (cmdFile && !batFile && !exeFile) {
-            // console.log('[findCommandPath] 只找到 cmd 文件,尝试解析 exe 路径')
-            const parseResult = this.parseCmdFile(cmdFile)
-            if (parseResult.success) {
-              bestMatch = parseResult.path
-              // console.log('[findCommandPath] 使用解析出的 exe 路径:', bestMatch)
-            } else {
-              bestMatch = cmdFile
-              // console.log('[findCommandPath] 解析失败,使用 cmd 文件')
-            }
-          }
-          // 否则按优先级选择
-          else {
-            bestMatch = cmdFile || exeFile || allPaths[0]
-          }
-
-          // console.log(`[findCommandPath] Windows 优先级选择: bat=${batFile}, cmd=${cmdFile}, exe=${exeFile}, 最终=${bestMatch}`)
+          // Windows: 使用 where 命令
+          const output = execSync(`where ${command}`, { encoding: 'utf-8' })
+          allPaths = output.trim().split('\n').map(p => p.trim()).filter(p => p)
         } else {
-          bestMatch = allPaths[0]
-        }
-
-        const totalTime = Date.now() - startTime
-        // console.log(`[findCommandPath] 总耗时 ${totalTime}ms`)
-
-        return {
-          success: true,
-          path: bestMatch,
-          all: allPaths,
-          command: command,
-          platform: process.platform
+          // Linux/Mac: 使用 which 命令
+          const output = execSync(`which -a ${command}`, { encoding: 'utf-8' })
+          allPaths = output.trim().split('\n').map(p => p.trim()).filter(p => p)
         }
       } catch (error) {
-        // which 抛出异常表示未找到命令
+        // 命令未找到
         return {
           success: false,
           message: `未找到命令: ${command}`,
-          details: error.message,
           command: command,
           platform: process.platform
         }
+      }
+
+      if (!allPaths || allPaths.length === 0) {
+        return {
+          success: false,
+          message: `未找到命令: ${command}`,
+          command: command
+        }
+      }
+
+      // Windows 下去重(不区分大小写)
+      if (isWindows && allPaths.length > 1) {
+        const seen = new Map()
+        allPaths = allPaths.filter(p => {
+          const lower = p.toLowerCase()
+          if (seen.has(lower)) return false
+          seen.set(lower, true)
+          return true
+        })
+      }
+
+      // Windows 优先级: .bat > .cmd > .exe > 其他
+      let bestMatch
+
+      if (isWindows) {
+        const batFile = allPaths.find((p) => /\.bat$/i.test(p))
+        const cmdFile = allPaths.find((p) => /\.cmd$/i.test(p))
+        const exeFile = allPaths.find((p) => /\.exe$/i.test(p))
+
+        // 优先使用 bat 文件
+        if (batFile) {
+          bestMatch = batFile
+        }
+        // 如果只有 cmd 文件(来自 Toolbox),尝试解析出 exe 路径
+        else if (cmdFile && !batFile && !exeFile) {
+          const parseResult = this.parseCmdFile(cmdFile)
+          if (parseResult.success) {
+            bestMatch = parseResult.path
+          } else {
+            bestMatch = cmdFile
+          }
+        }
+        // 否则按优先级选择
+        else {
+          bestMatch = cmdFile || exeFile || allPaths[0]
+        }
+      } else {
+        bestMatch = allPaths[0]
+      }
+
+      return {
+        success: true,
+        path: bestMatch,
+        all: allPaths,
+        command: command,
+        platform: process.platform
       }
     } catch (error) {
       return {
         success: false,
         message: `查找命令时出错: ${error.message}`,
-        stack: error.stack,
         command: command
       }
     }
@@ -565,47 +559,13 @@ window.services = {
         })
       }
 
-      // 如果没有配置或配置为空，回退到自动搜索
+      // 如果没有配置任何编辑器路径，返回空结果
       if (projectSources.length === 0) {
-        // 搜索 VSCode 系列
-        const storageResult = this.searchStorageJson()
-        if (storageResult.success && storageResult.results.length > 0) {
-          storageResult.results.forEach(storageFile => {
-            const editorName = path.basename(path.dirname(path.dirname(path.dirname(storageFile))))
-            projectSources.push({
-              path: storageFile,
-              editorName,
-              type: 'vscode'
-            })
-          })
-        }
-
-        // 搜索 JetBrains 系列
-        const jetbrainsResult = this.searchRecentProjectsXml()
-        if (jetbrainsResult.success && jetbrainsResult.results.length > 0) {
-          jetbrainsResult.results.forEach(xmlFile => {
-            // 从路径中提取编辑器名称
-            // C:\...\JetBrains\IntelliJIdea2025.1\options\recentProjects.xml -> IntelliJIdea2025.1
-            // C:\...\Google\AndroidStudio2024.3.2\options\recentProjects.xml -> AndroidStudio2024.3.2
-            const parts = xmlFile.split(path.sep)
-            const optionsIndex = parts.lastIndexOf('options')
-            const editorName = optionsIndex > 0 ? parts[optionsIndex - 1] : 'JetBrains IDE'
-
-            projectSources.push({
-              path: xmlFile,
-              editorName,
-              type: 'jetbrains'
-            })
-          })
-        }
-
-        if (projectSources.length === 0) {
-          return {
-            success: false,
-            message: '未找到 storage.json 或 recentProjects.xml 文件，请在配置页面设置编辑器路径',
-            projects: [],
-            editorSources: []
-          }
+        return {
+          success: true,
+          message: '未配置编辑器路径，请在配置页面添加编辑器并搜索填充配置',
+          projects: [],
+          editorSources: []
         }
       }
 

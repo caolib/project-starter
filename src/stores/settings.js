@@ -41,7 +41,7 @@ const defaultSettings = {
         },
         idea: {
             id: 'idea',
-            name: 'IntelliJ IDEA',
+            name: 'IDEA',
             icon: 'img/code.png',
             commandName: 'idea',
             storageKeyword: 'idea',
