@@ -348,9 +348,8 @@ div.config-row {
     width: 100%;
     padding: 16px;
     margin: 12px 0;
-    border: 1px solid #e0e0e0;
     border-radius: 8px;
-    background: var(--bg-color, #fafafa);
+    border: 1px solid var(--border-color, #e8e8e8);
 }
 
 .editor-header {
@@ -359,7 +358,7 @@ div.config-row {
     gap: 12px;
     margin-bottom: 16px;
     padding-bottom: 12px;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid var(--border-color, #e0e0e0);
 }
 
 .editor-icon {

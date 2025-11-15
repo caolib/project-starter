@@ -216,36 +216,106 @@ window.services = {
   }
   ,
   // 从所有找到的 storage.json 文件中提取项目
-  extractAllProjects() {
+  // 接收编辑器配置，优先使用配置的 storagePath
+  extractAllProjects(editorsConfig) {
     try {
-      const searchResult = this.searchStorageJson()
-      if (!searchResult.success || searchResult.results.length === 0) {
-        return { success: false, message: '未找到 storage.json 文件', allProjects: [], sources: [] }
+      const storageFiles = []
+
+      // 如果提供了编辑器配置，优先使用配置的路径
+      if (editorsConfig) {
+        Object.entries(editorsConfig).forEach(([key, config]) => {
+          if (config.storagePath && fs.existsSync(config.storagePath)) {
+            storageFiles.push({
+              path: config.storagePath,
+              editorName: config.name || key
+            })
+          }
+        })
       }
 
-      const allProjects = new Set()
-      const sources = []
+      // 如果没有配置或配置为空，回退到自动搜索
+      if (storageFiles.length === 0) {
+        const searchResult = this.searchStorageJson()
+        if (!searchResult.success || searchResult.results.length === 0) {
+          return { success: false, message: '未找到 storage.json 文件，请在配置页面设置编辑器路径', projects: [], editorSources: [] }
+        }
 
-      searchResult.results.forEach(storageFile => {
+        searchResult.results.forEach(storageFile => {
+          const editorName = path.basename(path.dirname(path.dirname(path.dirname(storageFile))))
+          storageFiles.push({
+            path: storageFile,
+            editorName
+          })
+        })
+      }
+
+      // 项目路径 -> 编辑器列表的映射
+      const projectEditorMap = new Map()
+      const editorSources = []
+
+      storageFiles.forEach(({ path: storageFile, editorName }) => {
         const result = this.extractProjectsFromStorage(storageFile)
         if (result.success) {
-          result.projects.forEach(p => allProjects.add(p))
-          sources.push({
-            editor: path.basename(path.dirname(path.dirname(path.dirname(storageFile)))), // Code/Qoder/Trae
+          editorSources.push({
+            editor: editorName,
             path: storageFile,
             projectCount: result.count
+          })
+
+          // 为每个项目记录编辑器来源
+          result.projects.forEach(projectPath => {
+            if (!projectEditorMap.has(projectPath)) {
+              projectEditorMap.set(projectPath, [])
+            }
+            projectEditorMap.get(projectPath).push(editorName)
           })
         }
       })
 
+      // 转换为数组格式，包含项目路径和编辑器列表
+      const projects = Array.from(projectEditorMap.entries()).map(([projectPath, editors]) => {
+        const projectName = path.basename(projectPath)
+        return {
+          name: projectName,
+          path: projectPath,
+          editors: [...new Set(editors)] // 去重
+        }
+      }).sort((a, b) => a.name.localeCompare(b.name))
+
       return {
         success: true,
-        allProjects: Array.from(allProjects).sort(),
-        count: allProjects.size,
-        sources
+        projects,
+        count: projects.length,
+        editorSources
       }
     } catch (error) {
-      return { success: false, message: error.message, allProjects: [], sources: [] }
+      return { success: false, message: error.message, projects: [], editorSources: [] }
+    }
+  }
+  ,
+  // 在文件管理器中显示项目文件夹
+  showProjectInFolder(projectPath) {
+    try {
+      window.utools.shellShowItemInFolder(projectPath)
+      return { success: true }
+    } catch (error) {
+      return { success: false, message: error.message }
+    }
+  }
+  ,
+  // 使用指定编辑器打开项目
+  openProjectWithEditor(projectPath, editorExecutablePath) {
+    try {
+      const { exec } = require('child_process')
+      // 使用编辑器可执行文件打开项目目录
+      exec(`"${editorExecutablePath}" "${projectPath}"`, (error) => {
+        if (error) {
+          console.error('打开项目失败:', error)
+        }
+      })
+      return { success: true }
+    } catch (error) {
+      return { success: false, message: error.message }
     }
   }
 }

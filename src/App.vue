@@ -6,7 +6,7 @@ import HomeView from './components/HomeView.vue';
 import ConfigView from './components/ConfigView.vue';
 import { useSettingsStore } from './stores/settings';
 
-const { Sider, Content } = Layout;
+const { Header, Content } = Layout;
 
 const currentView = ref(['home']);
 const enterAction = ref({});
@@ -34,6 +34,11 @@ const themeConfig = computed(() => {
 const applyTheme = () => {
   document.documentElement.setAttribute('data-theme', actualTheme.value);
 };
+
+// 监听主题变化并重新应用
+watch(actualTheme, () => {
+  applyTheme();
+});
 
 const menuItems = [
   {
@@ -80,15 +85,27 @@ const handleMenuClick = ({ key }) => {
 <template>
   <ConfigProvider :theme="themeConfig">
     <Layout style="min-height: 100vh;">
-      <Sider :theme="actualTheme === 'dark' ? 'dark' : 'light'" :width="150"
-        :style="{ borderRight: actualTheme === 'dark' ? '1px solid #303030' : '1px solid #f0f0f0' }">
-        <Menu style="height: 100%;" v-model:selectedKeys="currentView" mode="inline" :items="menuItems"
-          @click="handleMenuClick" />
-      </Sider>
-      <Content :style="{ background: actualTheme === 'dark' ? '#141414' : '#fff' }">
+      <Header :style="{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0',
+        lineHeight: '32px',
+        height: '32px',
+
+      }">
+        <Menu v-model:selectedKeys="currentView" mode="horizontal" :items="menuItems" @click="handleMenuClick"
+          style="flex: 1; min-width: 0;" :theme="actualTheme === 'dark' ? 'dark' : 'light'" />
+      </Header>
+      <Content :style="{ background: actualTheme === 'dark' ? '#282c34' : '#fff', padding: '0', minHeight: '0' }">
         <HomeView v-if="currentView[0] === 'home'" :enterAction="enterAction" />
         <ConfigView v-else-if="currentView[0] === 'config'" />
       </Content>
     </Layout>
   </ConfigProvider>
 </template>
+
+<style scoped>
+:deep(.ant-menu-dark) {
+  background: var(--bg-color) !important;
+}
+</style>
