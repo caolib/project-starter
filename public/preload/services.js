@@ -72,6 +72,7 @@ window.services = {
   ,
   // 跨平台查找命令的可执行路径（使用 which 包）
   findCommandPath(command = 'code') {
+    const startTime = Date.now()
     try {
       const which = require('which')
 
@@ -79,6 +80,8 @@ window.services = {
       // 设置选项以查找所有匹配项
       try {
         let allPaths = which.sync(command, { all: true })
+        const whichTime = Date.now() - startTime
+        // console.log(`[findCommandPath] which.sync 耗时 ${whichTime}ms`)
 
         // Windows 下去重(不区分大小写)
         if (allPaths && allPaths.length > 1 && process.platform === 'win32') {
@@ -115,14 +118,14 @@ window.services = {
           }
           // 如果只有 cmd 文件(来自 Toolbox),尝试解析出 exe 路径
           else if (cmdFile && !batFile && !exeFile) {
-            console.log('[findCommandPath] 只找到 cmd 文件,尝试解析 exe 路径')
+            // console.log('[findCommandPath] 只找到 cmd 文件,尝试解析 exe 路径')
             const parseResult = this.parseCmdFile(cmdFile)
             if (parseResult.success) {
               bestMatch = parseResult.path
-              console.log('[findCommandPath] 使用解析出的 exe 路径:', bestMatch)
+              // console.log('[findCommandPath] 使用解析出的 exe 路径:', bestMatch)
             } else {
               bestMatch = cmdFile
-              console.log('[findCommandPath] 解析失败,使用 cmd 文件')
+              // console.log('[findCommandPath] 解析失败,使用 cmd 文件')
             }
           }
           // 否则按优先级选择
@@ -130,10 +133,13 @@ window.services = {
             bestMatch = cmdFile || exeFile || allPaths[0]
           }
 
-          console.log(`[findCommandPath] Windows 优先级选择: bat=${batFile}, cmd=${cmdFile}, exe=${exeFile}, 最终=${bestMatch}`)
+          // console.log(`[findCommandPath] Windows 优先级选择: bat=${batFile}, cmd=${cmdFile}, exe=${exeFile}, 最终=${bestMatch}`)
         } else {
           bestMatch = allPaths[0]
         }
+
+        const totalTime = Date.now() - startTime
+        // console.log(`[findCommandPath] 总耗时 ${totalTime}ms`)
 
         return {
           success: true,
@@ -165,7 +171,7 @@ window.services = {
   // 解析 .cmd 文件,提取其中的 .exe 路径
   parseCmdFile(cmdFilePath) {
     try {
-      console.log('[parseCmdFile] 解析 cmd 文件:', cmdFilePath)
+      // console.log('[parseCmdFile] 解析 cmd 文件:', cmdFilePath)
       const content = fs.readFileSync(cmdFilePath, { encoding: 'utf-8' })
 
       // 匹配 start 命令中的 exe 路径
@@ -183,7 +189,7 @@ window.services = {
 
       if (exeMatch && exeMatch[1]) {
         const exePath = exeMatch[1].trim()
-        console.log('[parseCmdFile] 找到 exe 路径:', exePath)
+        // console.log('[parseCmdFile] 找到 exe 路径:', exePath)
 
         if (fs.existsSync(exePath)) {
           return {
@@ -191,7 +197,7 @@ window.services = {
             path: exePath
           }
         } else {
-          console.log('[parseCmdFile] exe 文件不存在:', exePath)
+          // console.log('[parseCmdFile] exe 文件不存在:', exePath)
           return {
             success: false,
             message: 'exe 文件不存在'
@@ -199,7 +205,7 @@ window.services = {
         }
       }
 
-      console.log('[parseCmdFile] 未找到 exe 路径,文件内容前500字符:', content.substring(0, 500))
+      // console.log('[parseCmdFile] 未找到 exe 路径,文件内容前500字符:', content.substring(0, 500))
       return {
         success: false,
         message: '未在 cmd 文件中找到 exe 路径'
@@ -253,7 +259,7 @@ window.services = {
     function searchRecursive(currentPath, depth = 0) {
       // 限制搜索深度，避免搜索过深
       if (depth > 10) {
-        console.log(`[searchFile] 达到最大深度限制 (${depth}):`, currentPath)
+        // console.log(`[searchFile] 达到最大深度限制 (${depth}):`, currentPath)
         return
       }
 
@@ -269,23 +275,23 @@ window.services = {
             if (stat.isDirectory()) {
               // 跳过 plugins 文件夹
               if (item === 'plugins') {
-                console.log(`[searchFile] 跳过 plugins 目录: ${fullPath}`)
+                // console.log(`[searchFile] 跳过 plugins 目录: ${fullPath}`)
                 continue
               }
               // 继续递归搜索
               searchRecursive(fullPath, depth + 1)
             } else if (stat.isFile() && item === fileName) {
               filesChecked++
-              console.log(`[searchFile] 找到文件: ${fullPath}`)
+              // console.log(`[searchFile] 找到文件: ${fullPath}`)
               // 如果指定了路径必须包含的文件夹名
               if (pathMustContain) {
                 // 检查完整路径中是否包含该文件夹名
                 if (fullPath.includes(path.sep + pathMustContain + path.sep) ||
                   fullPath.includes(path.sep + pathMustContain)) {
-                  console.log(`[searchFile] 匹配关键字 "${pathMustContain}": ${fullPath}`)
+                  // console.log(`[searchFile] 匹配关键字 "${pathMustContain}": ${fullPath}`)
                   results.push(fullPath)
                 } else {
-                  console.log(`[searchFile] 不匹配关键字 "${pathMustContain}": ${fullPath}`)
+                  // console.log(`[searchFile] 不匹配关键字 "${pathMustContain}": ${fullPath}`)
                 }
               } else {
                 results.push(fullPath)
@@ -298,18 +304,18 @@ window.services = {
         }
       } catch (err) {
         // 跳过无权限访问的目录
-        console.log(`[searchFile] 无法访问目录:`, currentPath, err.message)
+        // console.log(`[searchFile] 无法访问目录:`, currentPath, err.message)
       }
     }
 
     try {
-      console.log(`[searchFile] 开始搜索: startPath=${startPath}, fileName=${fileName}, pathMustContain=${pathMustContain}`)
+      // console.log(`[searchFile] 开始搜索: startPath=${startPath}, fileName=${fileName}, pathMustContain=${pathMustContain}`)
       if (!fs.existsSync(startPath)) {
-        console.log(`[searchFile] 起始路径不存在: ${startPath}`)
+        // console.log(`[searchFile] 起始路径不存在: ${startPath}`)
         return { success: false, message: '起始路径不存在', results: [] }
       }
       searchRecursive(startPath)
-      console.log(`[searchFile] 搜索完成: 检查了 ${dirsChecked} 个目录, ${filesChecked} 个匹配文件名, 最终结果 ${results.length} 个`)
+      // console.log(`[searchFile] 搜索完成: 检查了 ${dirsChecked} 个目录, ${filesChecked} 个匹配文件名, 最终结果 ${results.length} 个`)
       return { success: true, results, count: results.length }
     } catch (error) {
       console.error(`[searchFile] 搜索出错:`, error)
@@ -320,12 +326,34 @@ window.services = {
   // 搜索 storage.json 文件（在 AppData/Roaming 下的 globalStorage 文件夹中）
   searchStorageJson() {
     try {
+      const startTime = Date.now()
       // 获取 AppData/Roaming 路径
       const roamingPath = window.utools.getPath('appData')
+      // console.log('[searchStorageJson] roamingPath:', roamingPath)
+      const results = []
 
-      // 搜索 storage.json，要求它在 globalStorage 文件夹下
-      return this.searchFile(roamingPath, 'storage.json', 'globalStorage')
+      // VSCode 系列编辑器的常见文件夹名
+      const vscodeEditors = ['Code', 'Cursor', 'Qoder', 'Trae', 'VSCodium', 'Code - Insiders']
+
+      for (const editorName of vscodeEditors) {
+        const editorPath = path.join(roamingPath, editorName)
+        if (fs.existsSync(editorPath)) {
+          // console.log(`[searchStorageJson] 检查 ${editorName} 目录:`, editorPath)
+
+          // 查找 User/globalStorage/storage.json
+          const storagePath = path.join(editorPath, 'User', 'globalStorage', 'storage.json')
+          if (fs.existsSync(storagePath)) {
+            // console.log(`[searchStorageJson] 找到 storage.json:`, storagePath)
+            results.push(storagePath)
+          }
+        }
+      }
+
+      const elapsed = Date.now() - startTime
+      // console.log(`[searchStorageJson] 搜索完成，耗时 ${elapsed}ms，找到 ${results.length} 个文件`)
+      return { success: true, results, count: results.length }
     } catch (error) {
+      console.error('[searchStorageJson] 搜索失败:', error)
       return { success: false, message: error.message, results: [] }
     }
   },
@@ -333,20 +361,22 @@ window.services = {
   // 搜索 JetBrains 系列编辑器的 recentProjects.xml 文件
   searchRecentProjectsXml() {
     try {
+      const startTime = Date.now()
       // 获取 AppData/Roaming 路径
       const roamingPath = window.utools.getPath('appData')
-      console.log('[searchRecentProjectsXml] roamingPath:', roamingPath)
+      // console.log('[searchRecentProjectsXml] roamingPath:', roamingPath)
       const results = []
 
       // 搜索 JetBrains 目录下的编辑器文件夹，直接在 options 中查找
       const jetbrainsPath = path.join(roamingPath, 'JetBrains')
-      console.log('[searchRecentProjectsXml] 搜索 JetBrains 目录:', jetbrainsPath)
+      // console.log('[searchRecentProjectsXml] 搜索 JetBrains 目录:', jetbrainsPath)
       if (fs.existsSync(jetbrainsPath)) {
         const editorFolders = fs.readdirSync(jetbrainsPath)
+        // console.log(`[searchRecentProjectsXml] JetBrains 目录下有 ${editorFolders.length} 个文件夹`)
         for (const folder of editorFolders) {
           const optionsPath = path.join(jetbrainsPath, folder, 'options', 'recentProjects.xml')
           if (fs.existsSync(optionsPath)) {
-            console.log('[searchRecentProjectsXml] 找到 JetBrains 文件:', optionsPath)
+            // console.log('[searchRecentProjectsXml] 找到 JetBrains 文件:', optionsPath)
             results.push(optionsPath)
           }
         }
@@ -354,19 +384,21 @@ window.services = {
 
       // 搜索 Google 目录下的编辑器文件夹 (Android Studio)
       const googlePath = path.join(roamingPath, 'Google')
-      console.log('[searchRecentProjectsXml] 搜索 Google 目录:', googlePath)
+      // console.log('[searchRecentProjectsXml] 搜索 Google 目录:', googlePath)
       if (fs.existsSync(googlePath)) {
         const editorFolders = fs.readdirSync(googlePath)
+        // console.log(`[searchRecentProjectsXml] Google 目录下有 ${editorFolders.length} 个文件夹`)
         for (const folder of editorFolders) {
           const optionsPath = path.join(googlePath, folder, 'options', 'recentProjects.xml')
           if (fs.existsSync(optionsPath)) {
-            console.log('[searchRecentProjectsXml] 找到 Google 文件:', optionsPath)
+            // console.log('[searchRecentProjectsXml] 找到 Google 文件:', optionsPath)
             results.push(optionsPath)
           }
         }
       }
 
-      console.log('[searchRecentProjectsXml] 最终结果:', { success: true, results, count: results.length })
+      const elapsed = Date.now() - startTime
+      // console.log(`[searchRecentProjectsXml] 搜索完成，耗时 ${elapsed}ms，找到 ${results.length} 个文件`)
       return { success: true, results, count: results.length }
     } catch (error) {
       console.error('[searchRecentProjectsXml] 错误:', error)
