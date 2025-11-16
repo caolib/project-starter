@@ -108,6 +108,41 @@ window.services = {
     }
   }
   ,
+  // 智能查找 exe 文件：在指定目录及其 bin 子目录查找匹配的 exe
+  findExeInDirectory(baseDir, commandName) {
+    try {
+      // 尝试的路径列表
+      const tryPaths = [
+        path.join(baseDir, `${commandName}.exe`),
+        path.join(baseDir, 'bin', `${commandName}.exe`),
+        path.join(baseDir, `${commandName}64.exe`),
+        path.join(baseDir, 'bin', `${commandName}64.exe`)
+      ]
+
+      for (const tryPath of tryPaths) {
+        if (fs.existsSync(tryPath)) {
+          return { success: true, path: tryPath }
+        }
+      }
+
+      // 如果精确匹配失败，尝试模糊匹配（在 bin 目录查找包含命令名的 exe）
+      const binDir = path.join(baseDir, 'bin')
+      if (fs.existsSync(binDir)) {
+        const files = fs.readdirSync(binDir)
+        const matchedExe = files.find(f =>
+          f.toLowerCase().includes(commandName.toLowerCase()) && /\.exe$/i.test(f)
+        )
+        if (matchedExe) {
+          return { success: true, path: path.join(binDir, matchedExe) }
+        }
+      }
+
+      return { success: false, message: '未找到对应的 exe 文件' }
+    } catch (error) {
+      return { success: false, message: error.message }
+    }
+  }
+  ,
   // 跨平台查找命令的可执行路径（使用系统命令）
   findCommandPath(command = 'code') {
     try {
@@ -155,7 +190,7 @@ window.services = {
         })
       }
 
-      // Windows 优先级: .bat > .cmd > .exe > 其他
+      // Windows 新优先级: 优先查找安装目录的 .exe
       let bestMatch
 
       if (isWindows) {
@@ -163,22 +198,37 @@ window.services = {
         const cmdFile = allPaths.find((p) => /\.cmd$/i.test(p))
         const exeFile = allPaths.find((p) => /\.exe$/i.test(p))
 
-        // 优先使用 bat 文件
-        if (batFile) {
-          bestMatch = batFile
+        // 1. 如果直接找到了 exe，优先使用
+        if (exeFile) {
+          bestMatch = exeFile
         }
-        // 如果只有 cmd 文件(来自 Toolbox),尝试解析出 exe 路径
-        else if (cmdFile && !batFile && !exeFile) {
-          const parseResult = this.parseCmdFile(cmdFile)
-          if (parseResult.success) {
-            bestMatch = parseResult.path
+        // 2. 如果找到 bat/cmd，尝试从其所在目录智能查找 exe
+        else if (batFile || cmdFile) {
+          const scriptFile = batFile || cmdFile
+          const scriptDir = path.dirname(scriptFile)
+
+          // VSCode 系列: code.cmd 在 bin 目录，安装目录是上级
+          // JetBrains 系列: idea.bat 在 bin 目录，安装目录是上级
+          const installDir = path.dirname(scriptDir) // 上级目录（安装目录）
+
+          // 智能查找 exe
+          const exeResult = this.findExeInDirectory(installDir, command)
+          if (exeResult.success) {
+            bestMatch = exeResult.path
+          } else if (cmdFile) {
+            // 如果是 cmd，尝试解析内容
+            const parseResult = this.parseCmdFile(cmdFile)
+            if (parseResult.success) {
+              bestMatch = parseResult.path
+            } else {
+              bestMatch = scriptFile
+            }
           } else {
-            bestMatch = cmdFile
+            bestMatch = scriptFile
           }
         }
-        // 否则按优先级选择
         else {
-          bestMatch = cmdFile || exeFile || allPaths[0]
+          bestMatch = allPaths[0]
         }
       } else {
         bestMatch = allPaths[0]

@@ -87,16 +87,16 @@ const searchEditorConfig = async (editorKey) => {
                         console.log(`找到多个匹配项:`, res.all);
                     }
 
-                    // 尝试在同一目录查找图标（JetBrains 编辑器）
-                    if (editorType === 'jetbrains' && executablePath && window.services.findIconInBinDir) {
-                        console.log(`开始查找图标，路径: ${executablePath}, 命令名: ${editor.commandName}`);
-                        const iconRes = window.services.findIconInBinDir(executablePath, editor.commandName);
-                        console.log('图标查找结果:', iconRes);
-                        if (iconRes && iconRes.success) {
-                            iconPath = iconRes.path;
-                            console.log(`找到图标:`, iconPath);
-                        } else {
-                            console.log('未找到图标:', iconRes ? iconRes.message : '无返回结果');
+                    // 使用 utools.getFileIcon 获取图标（自动从 exe 提取）
+                    if (executablePath && window.utools && typeof window.utools.getFileIcon === 'function') {
+                        try {
+                            const iconBase64 = window.utools.getFileIcon(executablePath);
+                            if (iconBase64) {
+                                iconPath = iconBase64; // Base64 格式的图标
+                                console.log('已获取图标 (base64)');
+                            }
+                        } catch (e) {
+                            console.warn('获取图标失败:', e);
                         }
                     }
                 } else {
