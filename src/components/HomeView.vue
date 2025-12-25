@@ -145,8 +145,6 @@ const openWithEditor = (projectPath, editorName) => {
       const res = window.services.openProjectWithEditor(projectPath, editorConfig.executablePath);
       if (res.success) {
         message.success(`正在使用 ${editorName} 打开项目...`);
-        // 记录编辑器使用历史
-        settingsStore.recordEditorUsage(projectPath, editorId);
       } else {
         message.error(`打开失败: ${res.message}`);
       }
@@ -253,15 +251,22 @@ const removeSubInput = () => {
 
 // 获取项目的已使用编辑器
 const getUsedEditors = (project) => {
-  const history = settingsStore.getEditorHistory(project.path);
-  // 返回使用历史中存在的编辑器 ID
-  return history;
+  // 直接从项目的编辑器来源字段获取（项目在哪些编辑器的配置文件中被发现）
+  if (!project.editors || project.editors.length === 0) {
+    return [];
+  }
+
+  // 将编辑器名称映射到编辑器 ID
+  const usedEditorIds = project.editors.map(editorName => getEditorId(editorName));
+
+  // 过滤出有效的编辑器 ID（即在当前配置中存在的）
+  return usedEditorIds.filter(editorId => editors.value[editorId]);
 };
 
 // 获取项目的未使用编辑器
 const getUnusedEditors = (project) => {
   const used = getUsedEditors(project);
-  // 返回所有配置的编辑器中，不在使用历史中的编辑器
+  // 返回所有配置的编辑器中，不在项目来源中的编辑器
   return Object.keys(editors.value).filter(editorId => {
     return !used.includes(editorId);
   });
@@ -332,6 +337,28 @@ const showContextMenu = (e, project) => {
     y: e.clientY,
   };
   contextMenuVisible.value = true;
+
+  // 在菜单渲染后调整位置，避免超出屏幕
+  nextTick(() => {
+    const menu = document.querySelector('.context-menu');
+    if (!menu) return;
+
+    const menuRect = menu.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+
+    // 如果菜单超出底部，向上调整
+    if (menuRect.bottom > viewportHeight) {
+      const newY = e.clientY - menuRect.height - 8; // 8px 间距
+      contextMenuPosition.value.y = Math.max(8, newY); // 至少保持 8px 的顶部间距
+    }
+
+    // 如果菜单超出右侧，向左调整
+    if (menuRect.right > viewportWidth) {
+      const newX = e.clientX - menuRect.width - 8; // 8px 间距
+      contextMenuPosition.value.x = Math.max(8, newX); // 至少保持 8px 的左侧间距
+    }
+  });
 };
 
 // 隐藏右键菜单
