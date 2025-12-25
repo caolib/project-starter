@@ -9,6 +9,7 @@ const EDITOR_HISTORY_KEY = 'utools-project-editor-history'
 const defaultSettings = {
     theme: 'system',
     hideMissingProjects: true,
+    autoHideWindow: false, // 打开项目后自动隐藏窗口
     editors: {
         code: {
             id: 'code',
@@ -127,6 +128,11 @@ export function useSettingsStore() {
         set: (val) => { settings.value.hideMissingProjects = !!val }
     })
 
+    const autoHideWindow = computed({
+        get: () => settings.value.autoHideWindow,
+        set: (val) => { settings.value.autoHideWindow = !!val }
+    })
+
     const editors = computed({
         get: () => settings.value.editors,
         set: (val) => { settings.value.editors = val }
@@ -202,6 +208,7 @@ export function useSettingsStore() {
     return {
         theme,
         hideMissingProjects,
+        autoHideWindow,
         editors,
         setTheme,
         setEditorConfig,

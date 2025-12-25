@@ -148,6 +148,29 @@ const openWithEditor = (projectPath, editorName) => {
       const res = window.services.openProjectWithEditor(projectPath, editorConfig.executablePath);
       if (res.success) {
         message.success(`正在使用 ${editorName} 打开项目...`);
+
+        // 检查是否开启自动隐藏窗口功能
+        if (settingsStore.autoHideWindow.value) {
+          // 延迟执行，让success消息显示
+          setTimeout(() => {
+            // 检查窗口类型
+            if (window.utools && typeof window.utools.getWindowType === 'function') {
+              const windowType = window.utools.getWindowType();
+              console.log('当前窗口类型:', windowType);
+
+              if (windowType === 'detach') {
+                // 分离窗口
+                message.warning('当前为分离窗口，无法自动关闭。可在 uTools 设置中禁用窗口分离');
+              } else if (windowType === 'main') {
+                // 主窗口 - 调用 hideMainWindow 隐藏
+                if (typeof window.utools.hideMainWindow === 'function') {
+                  window.utools.hideMainWindow();
+                  console.log('已隐藏主窗口');
+                }
+              }
+            }
+          }, 1000);
+        }
       } else {
         message.error(`打开失败: ${res.message}`);
       }

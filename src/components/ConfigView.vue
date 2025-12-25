@@ -17,6 +17,11 @@ const hideMissingProjects = computed({
     set: (val) => { settingsStore.hideMissingProjects.value = val }
 });
 
+const autoHideWindow = computed({
+    get: () => settingsStore.autoHideWindow.value,
+    set: (val) => { settingsStore.autoHideWindow.value = val }
+});
+
 const editors = computed(() => settingsStore.editors.value);
 
 // 添加/编辑编辑器的对话框
@@ -884,6 +889,11 @@ const searchEditorConfigInModal = async () => {
         <div class="config-row" style="margin-top: 8px;">
             <a-typography-text style="margin-right: 10px;">如果项目对应的目录已经不存在，则不显示该项目</a-typography-text>
             <a-switch v-model:checked="hideMissingProjects" />
+        </div>
+
+        <div class="config-row" style="margin-top: 8px;">
+            <a-typography-text style="margin-right: 10px;">打开项目后自动隐藏插件窗口</a-typography-text>
+            <a-switch v-model:checked="autoHideWindow" />
         </div>
 
         <!-- 编辑器配置区域 -->
