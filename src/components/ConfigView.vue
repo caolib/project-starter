@@ -31,7 +31,7 @@ const editorForm = ref({
     executablePath: '',
     storagePath: '',
     recentProjectsPath: '',
-    editorType: 'vscode' // 'vscode' 或 'jetbrains'
+    editorType: '' // 用户必须手动选择
 });
 
 // 搜索状态
@@ -91,6 +91,35 @@ const inferExePathFromCmd = (cmdPath, commandName) => {
     }
 };
 
+// 推断 JetBrains 编辑器的 64 位可执行文件路径（从 .bat 文件推断）
+const inferExePathFromBat = (batPath, commandName) => {
+    try {
+        // 示例：C:\Users\caolib\AppData\Local\Programs\IntelliJ IDEA Ultimate\bin\idea.bat
+        // 推断路径：C:\Users\caolib\AppData\Local\Programs\IntelliJ IDEA Ultimate\bin\idea64.exe
+
+        // 获取基名
+        const fileName = batPath.substring(batPath.lastIndexOf('\\') + 1);
+        const baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+        const dir = batPath.substring(0, batPath.lastIndexOf('\\'));
+
+        console.log('BAT 文件基名:', baseName, '目录:', dir);
+
+        // JetBrains 编辑器通常在同级目录下有 64 位版本
+        // 例如：idea.bat -> idea64.exe, pycharm.bat -> pycharm64.exe
+        const inferredPaths = [
+            dir + '\\' + baseName + '64.exe',  // 小写 + 64 + .exe (如 idea64.exe)
+            dir + '\\' + baseName.charAt(0).toUpperCase() + baseName.slice(1) + '64.exe', // 大写首字母 + 64 + .exe
+        ];
+
+        console.log('尝试推断的 JetBrains .exe 路径:', inferredPaths);
+
+        return inferredPaths;
+    } catch (error) {
+        console.error('推断 JetBrains .exe 路径失败:', error);
+        return [];
+    }
+};
+
 // 搜索编辑器配置
 const searchEditorConfig = async (editorKey) => {
     searching.value[editorKey] = true;
@@ -121,21 +150,56 @@ const searchEditorConfig = async (editorKey) => {
                 console.log('搜索结果:', res);
 
                 if (res && res.success) {
-                    // 如果有多个匹配项，选择最合适的（优先 .cmd 或 .bat）
+                    // 如果有多个匹配项，根据编辑器类型选择最合适的
                     if (res.all && res.all.length > 1) {
                         console.log(`找到多个匹配项:`, res.all);
-                        // 优先级：.cmd > .bat > .exe > 无扩展名
                         const cmdFile = res.all.find(p => p.toLowerCase().endsWith('.cmd'));
                         const batFile = res.all.find(p => p.toLowerCase().endsWith('.bat'));
                         const exeFile = res.all.find(p => p.toLowerCase().endsWith('.exe'));
 
-                        if (cmdFile) {
-                            // 对于 VSCode 类型的编辑器，尝试推断 .exe 文件
-                            if (editorType === 'vscode') {
+                        if (editorType === 'jetbrains') {
+                            // JetBrains 编辑器：优先 .bat，并尝试推断 64.exe
+                            if (batFile) {
+                                console.log('JetBrains 类型编辑器，优先使用 .bat 并尝试推断 64.exe...');
+                                const inferredExePaths = inferExePathFromBat(batFile, editor.commandName || editorKey);
+                                if (inferredExePaths && inferredExePaths.length > 0 && window.services && typeof window.services.pathExists === 'function') {
+                                    let foundExePath = null;
+                                    for (const exePath of inferredExePaths) {
+                                        if (window.services.pathExists(exePath)) {
+                                            foundExePath = exePath;
+                                            console.log('推断的 64.exe 文件存在，使用:', foundExePath);
+                                            break;
+                                        }
+                                    }
+                                    if (foundExePath) {
+                                        executablePath = foundExePath;
+                                    } else {
+                                        console.log('未找到推断的 64.exe 文件，改用 .bat 文件');
+                                        executablePath = batFile;
+                                        console.log('选择了 .bat 文件:', executablePath);
+                                    }
+                                } else {
+                                    executablePath = batFile;
+                                    console.log('无法推断 64.exe 或缺少 pathExists 服务，选择 .bat 文件:', executablePath);
+                                }
+                            } else if (exeFile) {
+                                // 没有 .bat，但有 .exe
+                                executablePath = exeFile;
+                                console.log('选择了 .exe 文件:', executablePath);
+                            } else if (cmdFile) {
+                                // 最后才用 .cmd
+                                executablePath = cmdFile;
+                                console.log('选择了 .cmd 文件:', executablePath);
+                            } else {
+                                executablePath = res.path || '';
+                                console.log('使用默认路径:', executablePath);
+                            }
+                        } else {
+                            // VSCode 或其他编辑器：优先 .cmd（并尝试推断 .exe）
+                            if (cmdFile) {
                                 console.log('VSCode 类型编辑器，尝试推断 .exe 路径...');
                                 const inferredExePaths = inferExePathFromCmd(cmdFile, editor.commandName || editorKey);
                                 if (inferredExePaths && inferredExePaths.length > 0 && window.services && typeof window.services.pathExists === 'function') {
-                                    // 逐个检查推断的路径，返回第一个存在的文件
                                     let foundExePath = null;
                                     for (const exePath of inferredExePaths) {
                                         if (window.services.pathExists(exePath)) {
@@ -155,19 +219,16 @@ const searchEditorConfig = async (editorKey) => {
                                     executablePath = cmdFile;
                                     console.log('无法推断 .exe 路径或缺少 pathExists 服务，选择 .cmd 文件:', executablePath);
                                 }
+                            } else if (batFile) {
+                                executablePath = batFile;
+                                console.log('选择了 .bat 文件:', executablePath);
+                            } else if (exeFile) {
+                                executablePath = exeFile;
+                                console.log('选择了 .exe 文件:', executablePath);
                             } else {
-                                executablePath = cmdFile;
-                                console.log('选择了 .cmd 文件:', executablePath);
+                                executablePath = res.path || '';
+                                console.log('使用默认路径:', executablePath);
                             }
-                        } else if (batFile) {
-                            executablePath = batFile;
-                            console.log('选择了 .bat 文件:', executablePath);
-                        } else if (exeFile) {
-                            executablePath = exeFile;
-                            console.log('选择了 .exe 文件:', executablePath);
-                        } else {
-                            executablePath = res.path || '';
-                            console.log('使用默认路径:', executablePath);
                         }
                     } else {
                         executablePath = res.path || '';
@@ -200,7 +261,11 @@ const searchEditorConfig = async (editorKey) => {
                     if (res && res.success && res.results.length > 0) {
                         const keyword = editor.storageKeyword || editor.name;
                         console.log(`搜索 Storage 关键字: ${keyword}`);
-                        const matchedPath = res.results.find(p => p.includes(`\\${keyword}\\`));
+                        const matchedPath = res.results.find(p => {
+                            const lowerPath = p.toLowerCase();
+                            const lowerKeyword = keyword.toLowerCase();
+                            return lowerPath.includes(`\\${lowerKeyword}\\`);
+                        });
                         if (matchedPath) {
                             projectFilePath = matchedPath;
                             console.log(`找到 Storage 路径:`, projectFilePath);
@@ -475,7 +540,7 @@ const openAddEditorModal = () => {
         executablePath: '',
         storagePath: '',
         recentProjectsPath: '',
-        editorType: 'vscode'
+        editorType: '' // 用户必须手动选择
     };
     editorModalVisible.value = true;
 };
@@ -584,6 +649,222 @@ const selectIconInModal = () => {
         }
     } catch (error) {
         message.error(`选择图标失败: ${error.message}`);
+    }
+};
+
+// 在模态框中搜索编辑器配置
+const searchEditorConfigInModal = async () => {
+    // 检查必填字段
+    if (!editorForm.value.commandName.trim()) {
+        message.warning('请先输入命令名称');
+        return;
+    }
+
+    if (!editorForm.value.editorType) {
+        message.warning('请先选择编辑器类型');
+        return;
+    }
+
+    // 将配置路径关键字设置为命令名称的值
+    editorForm.value.storageKeyword = editorForm.value.commandName;
+
+    // 搜索可执行文件路径
+    let executablePath = '';
+    let iconPath = '';
+    try {
+        if (window.services && typeof window.services.findCommandPath === 'function') {
+            const commandName = editorForm.value.commandName;
+            console.log(`搜索命令: ${commandName}`);
+            const res = window.services.findCommandPath(commandName);
+            console.log('搜索结果:', res);
+
+            if (res && res.success) {
+                // 如果有多个匹配项，根据编辑器类型选择最合适的
+                if (res.all && res.all.length > 1) {
+                    console.log(`找到多个匹配项:`, res.all);
+                    const cmdFile = res.all.find(p => p.toLowerCase().endsWith('.cmd'));
+                    const batFile = res.all.find(p => p.toLowerCase().endsWith('.bat'));
+                    const exeFile = res.all.find(p => p.toLowerCase().endsWith('.exe'));
+
+                    if (editorForm.value.editorType === 'jetbrains') {
+                        // JetBrains 编辑器：优先 .bat，并尝试推断 64.exe
+                        if (batFile) {
+                            console.log('JetBrains 类型编辑器，优先使用 .bat 并尝试推断 64.exe...');
+                            const inferredExePaths = inferExePathFromBat(batFile, commandName);
+                            if (inferredExePaths && inferredExePaths.length > 0 && window.services && typeof window.services.pathExists === 'function') {
+                                let foundExePath = null;
+                                for (const exePath of inferredExePaths) {
+                                    if (window.services.pathExists(exePath)) {
+                                        foundExePath = exePath;
+                                        console.log('推断的 64.exe 文件存在，使用:', foundExePath);
+                                        break;
+                                    }
+                                }
+                                if (foundExePath) {
+                                    executablePath = foundExePath;
+                                } else {
+                                    console.log('未找到推断的 64.exe 文件，改用 .bat 文件');
+                                    executablePath = batFile;
+                                    console.log('选择了 .bat 文件:', executablePath);
+                                }
+                            } else {
+                                executablePath = batFile;
+                                console.log('无法推断 64.exe 或缺少 pathExists 服务，选择 .bat 文件:', executablePath);
+                            }
+                        } else if (exeFile) {
+                            // 没有 .bat，但有 .exe
+                            executablePath = exeFile;
+                            console.log('选择了 .exe 文件:', executablePath);
+                        } else if (cmdFile) {
+                            // 最后才用 .cmd
+                            executablePath = cmdFile;
+                            console.log('选择了 .cmd 文件:', executablePath);
+                        } else {
+                            executablePath = res.path || '';
+                            console.log('使用默认路径:', executablePath);
+                        }
+                    } else {
+                        // VSCode 或其他编辑器：优先 .cmd（并尝试推断 .exe）
+                        if (cmdFile) {
+                            console.log('VSCode 类型编辑器，尝试推断 .exe 路径...');
+                            const inferredExePaths = inferExePathFromCmd(cmdFile, commandName);
+                            if (inferredExePaths && inferredExePaths.length > 0 && window.services && typeof window.services.pathExists === 'function') {
+                                let foundExePath = null;
+                                for (const exePath of inferredExePaths) {
+                                    if (window.services.pathExists(exePath)) {
+                                        foundExePath = exePath;
+                                        console.log('推断的 .exe 文件存在，使用:', foundExePath);
+                                        break;
+                                    }
+                                }
+                                if (foundExePath) {
+                                    executablePath = foundExePath;
+                                } else {
+                                    console.log('未找到推断的 .exe 文件，改用 .cmd 文件');
+                                    executablePath = cmdFile;
+                                }
+                            } else {
+                                executablePath = cmdFile;
+                            }
+                        } else if (batFile) {
+                            executablePath = batFile;
+                            console.log('选择了 .bat 文件:', executablePath);
+                        } else if (exeFile) {
+                            executablePath = exeFile;
+                            console.log('选择了 .exe 文件:', executablePath);
+                        } else {
+                            executablePath = res.path || '';
+                            console.log('使用默认路径:', executablePath);
+                        }
+                    }
+                } else {
+                    executablePath = res.path || '';
+                }
+
+                // 使用 utools.getFileIcon 获取图标（自动从 exe 提取）
+                if (executablePath && window.utools && typeof window.utools.getFileIcon === 'function') {
+                    try {
+                        const iconBase64 = window.utools.getFileIcon(executablePath);
+                        if (iconBase64) {
+                            iconPath = iconBase64;
+                            console.log('已获取图标 (base64)');
+                        }
+                    } catch (e) {
+                        console.warn('获取图标失败:', e);
+                    }
+                }
+            } else {
+                console.warn(`未找到命令 ${commandName}:`, res.message, res.details);
+                message.warning(`未找到命令 ${commandName}`);
+                return;
+            }
+        }
+
+        // 根据编辑器类型搜索项目文件
+        let projectFilePath = '';
+
+        if (editorForm.value.editorType === 'vscode') {
+            // VSCode 系列：搜索 storage.json
+            if (window.services && typeof window.services.searchStorageJson === 'function') {
+                const res = window.services.searchStorageJson();
+                if (res && res.success && res.results.length > 0) {
+                    const keyword = editorForm.value.storageKeyword;
+                    console.log(`搜索 Storage 关键字: ${keyword}`);
+                    const matchedPath = res.results.find(p => {
+                        const lowerPath = p.toLowerCase();
+                        const lowerKeyword = keyword.toLowerCase();
+                        return lowerPath.includes(`\\${lowerKeyword}\\`);
+                    });
+                    if (matchedPath) {
+                        projectFilePath = matchedPath;
+                        console.log(`找到 Storage 路径:`, projectFilePath);
+                    } else {
+                        console.log(`未匹配到包含 "${keyword}" 的路径，所有结果:`, res.results);
+                    }
+                }
+            }
+        } else if (editorForm.value.editorType === 'jetbrains') {
+            // JetBrains 系列：搜索 recentProjects.xml
+            console.log('开始搜索 JetBrains recentProjects.xml...');
+            if (window.services && typeof window.services.searchRecentProjectsXml === 'function') {
+                const res = window.services.searchRecentProjectsXml();
+                console.log('searchRecentProjectsXml 返回结果:', res);
+                if (res && res.success && res.results.length > 0) {
+                    const keyword = editorForm.value.storageKeyword;
+                    console.log(`搜索 RecentProjects 关键字: ${keyword}`);
+                    console.log('所有找到的文件:', res.results);
+                    const matchedPath = res.results.find(p => {
+                        const lowerPath = p.toLowerCase();
+                        const lowerKeyword = keyword.toLowerCase();
+                        return lowerPath.includes(`\\${lowerKeyword}\\`) || lowerPath.includes(lowerKeyword);
+                    });
+                    if (matchedPath) {
+                        projectFilePath = matchedPath;
+                        console.log(`找到 RecentProjects 路径:`, projectFilePath);
+                    } else {
+                        console.log(`未匹配到包含 "${keyword}" 的路径，所有结果:`, res.results);
+                    }
+                } else {
+                    console.log('searchRecentProjectsXml 未找到文件或失败');
+                }
+            } else {
+                console.error('window.services.searchRecentProjectsXml 函数不存在');
+            }
+        }
+
+        // 更新表单数据
+        if (executablePath) {
+            editorForm.value.executablePath = executablePath;
+        }
+
+        if (iconPath) {
+            editorForm.value.icon = iconPath;
+        }
+
+        if (editorForm.value.editorType === 'vscode') {
+            if (projectFilePath) {
+                editorForm.value.storagePath = projectFilePath;
+            }
+        } else if (editorForm.value.editorType === 'jetbrains') {
+            if (projectFilePath) {
+                editorForm.value.recentProjectsPath = projectFilePath;
+            }
+        }
+
+        // 显示成功消息
+        const foundItems = [];
+        if (executablePath) foundItems.push('可执行文件');
+        if (projectFilePath) foundItems.push(editorForm.value.editorType === 'vscode' ? 'Storage 路径' : 'RecentProjects 路径');
+        if (iconPath) foundItems.push('图标');
+
+        if (foundItems.length > 0) {
+            message.success(`已自动填充: ${foundItems.join('、')}`);
+        } else {
+            message.warning(`未找到相关配置信息，请手动填充`);
+        }
+    } catch (error) {
+        console.error('搜索失败:', error);
+        message.error(`搜索失败: ${error.message}`);
     }
 };
 
@@ -736,11 +1017,19 @@ const selectIconInModal = () => {
                     </a-radio-group>
                 </a-form-item>
 
-                <a-form-item label="命令名称">
-                    <a-input v-model:value="editorForm.commandName" placeholder="如果要使用自动搜索，请填充此属性" />
+                <a-form-item label="命令名称" required>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <a-input v-model:value="editorForm.commandName" placeholder="如果要使用自动搜索，请填充此属性"
+                            style="flex: 1;" />
+                        <a-button type="primary" size="small" :disabled="!editorForm.commandName.trim()"
+                            @click="searchEditorConfigInModal">
+                            <SearchOutlined />
+                            搜索
+                        </a-button>
+                    </div>
                     <template #extra>
                         <span style="font-size: 12px; color: #999;">
-                            该编辑器对应的终端命令，如code、cursor、idea等
+                            编辑器对应的终端命令，如code、cursor等，输入后点击搜索可自动填充
                         </span>
                     </template>
                 </a-form-item>
@@ -748,11 +1037,6 @@ const selectIconInModal = () => {
                 <a-form-item label="配置路径关键字">
                     <a-input v-model:value="editorForm.storageKeyword"
                         placeholder="自动搜索时用于匹配配置文件路径中的关键字，如: Cursor、IDEA" />
-                    <template #extra>
-                        <span style="font-size: 12px; color: #999;">
-                            自动搜索时用于匹配配置文件路径的关键字
-                        </span>
-                    </template>
                 </a-form-item>
 
                 <a-form-item label="图标路径">
@@ -763,11 +1047,6 @@ const selectIconInModal = () => {
                             </a-button>
                         </template>
                     </a-input>
-                    <template #extra>
-                        <span style="font-size: 12px; color: #999;">
-                            JetBrains 系列会自动在命令同目录查找 .svg/.png/.ico 图标
-                        </span>
-                    </template>
                 </a-form-item>
 
                 <a-form-item label="可执行文件">
