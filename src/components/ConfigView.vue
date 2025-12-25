@@ -52,6 +52,45 @@ const themeOptions = [
     { label: '深色主题', value: 'dark' }
 ];
 
+// 推断 .exe 文件路径（从 .cmd 文件推断）
+const inferExePathFromCmd = (cmdPath, commandName) => {
+    try {
+        // 示例：C:\software\tools\cursor\resources\app\bin\cursor.cmd
+        // 推断路径：C:\software\tools\cursor\Cursor.exe
+
+        // 获取基名
+        const fileName = cmdPath.substring(cmdPath.lastIndexOf('\\') + 1);
+        const baseName = fileName.substring(0, fileName.lastIndexOf('.'));
+
+        console.log('CMD 文件基名:', baseName);
+
+        // 分割路径，逐级向上生成候选路径
+        // 从 cmd 所在目录开始，逐级向上查找 .exe
+        const pathParts = cmdPath.replace(/\//g, '\\').split('\\');
+        // 移除文件名，保留目录部分
+        pathParts.pop();
+
+        const inferredPaths = [];
+
+        // 从当前目录往上遍历，逐级生成候选路径
+        for (let i = pathParts.length - 1; i >= 0; i--) {
+            const currentPath = pathParts.slice(0, i + 1).join('\\');
+            // 尝试大写首字母的版本（如 Cursor.exe）
+            inferredPaths.push(currentPath + '\\' + baseName.charAt(0).toUpperCase() + baseName.slice(1) + '.exe');
+            // 尝试小写版本（如 cursor.exe）
+            inferredPaths.push(currentPath + '\\' + baseName + '.exe');
+        }
+
+        console.log('尝试推断的 .exe 路径:', inferredPaths);
+
+        // 返回所有可能的路径列表，由调用方逐个检查
+        return inferredPaths;
+    } catch (error) {
+        console.error('推断 .exe 路径失败:', error);
+        return [];
+    }
+};
+
 // 搜索编辑器配置
 const searchEditorConfig = async (editorKey) => {
     searching.value[editorKey] = true;
@@ -82,9 +121,56 @@ const searchEditorConfig = async (editorKey) => {
                 console.log('搜索结果:', res);
 
                 if (res && res.success) {
-                    executablePath = res.path || '';
+                    // 如果有多个匹配项，选择最合适的（优先 .cmd 或 .bat）
                     if (res.all && res.all.length > 1) {
                         console.log(`找到多个匹配项:`, res.all);
+                        // 优先级：.cmd > .bat > .exe > 无扩展名
+                        const cmdFile = res.all.find(p => p.toLowerCase().endsWith('.cmd'));
+                        const batFile = res.all.find(p => p.toLowerCase().endsWith('.bat'));
+                        const exeFile = res.all.find(p => p.toLowerCase().endsWith('.exe'));
+
+                        if (cmdFile) {
+                            // 对于 VSCode 类型的编辑器，尝试推断 .exe 文件
+                            if (editorType === 'vscode') {
+                                console.log('VSCode 类型编辑器，尝试推断 .exe 路径...');
+                                const inferredExePaths = inferExePathFromCmd(cmdFile, editor.commandName || editorKey);
+                                if (inferredExePaths && inferredExePaths.length > 0 && window.services && typeof window.services.pathExists === 'function') {
+                                    // 逐个检查推断的路径，返回第一个存在的文件
+                                    let foundExePath = null;
+                                    for (const exePath of inferredExePaths) {
+                                        if (window.services.pathExists(exePath)) {
+                                            foundExePath = exePath;
+                                            console.log('推断的 .exe 文件存在，使用:', foundExePath);
+                                            break;
+                                        }
+                                    }
+                                    if (foundExePath) {
+                                        executablePath = foundExePath;
+                                    } else {
+                                        console.log('未找到推断的 .exe 文件，改用 .cmd 文件');
+                                        executablePath = cmdFile;
+                                        console.log('选择了 .cmd 文件:', executablePath);
+                                    }
+                                } else {
+                                    executablePath = cmdFile;
+                                    console.log('无法推断 .exe 路径或缺少 pathExists 服务，选择 .cmd 文件:', executablePath);
+                                }
+                            } else {
+                                executablePath = cmdFile;
+                                console.log('选择了 .cmd 文件:', executablePath);
+                            }
+                        } else if (batFile) {
+                            executablePath = batFile;
+                            console.log('选择了 .bat 文件:', executablePath);
+                        } else if (exeFile) {
+                            executablePath = exeFile;
+                            console.log('选择了 .exe 文件:', executablePath);
+                        } else {
+                            executablePath = res.path || '';
+                            console.log('使用默认路径:', executablePath);
+                        }
+                    } else {
+                        executablePath = res.path || '';
                     }
 
                     // 使用 utools.getFileIcon 获取图标（自动从 exe 提取）
