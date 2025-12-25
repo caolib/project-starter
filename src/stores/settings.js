@@ -3,6 +3,7 @@ import { getData, setData } from '../utils/store'
 
 // 存储键名
 const SETTINGS_KEY = 'utools-plugin-template-settings'
+const EDITOR_HISTORY_KEY = 'utools-project-editor-history'
 
 // 默认设置值
 const defaultSettings = {
@@ -80,6 +81,14 @@ const loadSettings = () => {
     return { ...defaultSettings }
 }
 
+// 编辑器使用历史: { projectPath: ['editor1', 'editor2', ...] }
+const loadEditorHistory = () => {
+    const saved = getData(EDITOR_HISTORY_KEY, {})
+    return saved || {}
+}
+
+const editorHistory = ref(loadEditorHistory())
+
 // 全局状态
 const settings = ref(loadSettings())
 
@@ -90,6 +99,16 @@ watch(
         // 深拷贝以确保可序列化
         const serializableValue = JSON.parse(JSON.stringify(newValue))
         setData(SETTINGS_KEY, serializableValue)
+    },
+    { deep: true }
+)
+
+// 监听编辑器历史的变化并持久化
+watch(
+    editorHistory,
+    (newValue) => {
+        const serializableValue = JSON.parse(JSON.stringify(newValue))
+        setData(EDITOR_HISTORY_KEY, serializableValue)
     },
     { deep: true }
 )
@@ -162,6 +181,24 @@ export function useSettingsStore() {
 
     const resetToDefault = () => { settings.value = { ...defaultSettings } }
 
+    const recordEditorUsage = (projectPath, editorId) => {
+        if (!projectPath || !editorId) return
+        if (!editorHistory.value[projectPath]) {
+            editorHistory.value[projectPath] = []
+        }
+        // 移除已存在的编辑器 ID（避免重复）
+        const index = editorHistory.value[projectPath].indexOf(editorId)
+        if (index > -1) {
+            editorHistory.value[projectPath].splice(index, 1)
+        }
+        // 将编辑器 ID 添加到开头（最近使用的在最前面）
+        editorHistory.value[projectPath].unshift(editorId)
+    }
+
+    const getEditorHistory = (projectPath) => {
+        return editorHistory.value[projectPath] || []
+    }
+
     return {
         theme,
         hideMissingProjects,
@@ -172,6 +209,8 @@ export function useSettingsStore() {
         removeEditor,
         updateEditor,
         resetEditorsToDefault,
-        resetToDefault
+        resetToDefault,
+        recordEditorUsage,
+        getEditorHistory
     }
 }

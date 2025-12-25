@@ -26,6 +26,11 @@ const availableEditors = computed(() => {
 // 筛选状态 - 默认全选
 const selectedEditors = ref([]);
 
+// 右键菜单的当前项目
+const contextMenuProject = ref(null);
+const contextMenuVisible = ref(false);
+const contextMenuPosition = ref({ x: 0, y: 0 });
+
 // 筛选后的项目（包括搜索和编辑器筛选）
 const existsCache = new Map();
 const pathExists = (p) => {
@@ -120,11 +125,13 @@ const openWithEditor = (projectPath, editorName) => {
     // 查找匹配的编辑器配置
     const normalizedName = editorName.toLowerCase().replace(/\s+/g, '');
     let editorConfig = null;
+    let editorId = null;
 
     for (const [key, config] of Object.entries(editors.value)) {
       const configName = config.name.toLowerCase().replace(/\s+/g, '');
       if (configName === normalizedName || key === normalizedName) {
         editorConfig = config;
+        editorId = key;
         break;
       }
     }
@@ -138,6 +145,8 @@ const openWithEditor = (projectPath, editorName) => {
       const res = window.services.openProjectWithEditor(projectPath, editorConfig.executablePath);
       if (res.success) {
         message.success(`正在使用 ${editorName} 打开项目...`);
+        // 记录编辑器使用历史
+        settingsStore.recordEditorUsage(projectPath, editorId);
       } else {
         message.error(`打开失败: ${res.message}`);
       }
@@ -171,6 +180,24 @@ const getEditorIcon = (editorName) => {
 // 获取编辑器显示名称（已经是正确的名称，直接返回）
 const getEditorDisplayName = (editorName) => {
   return editorName;
+};
+
+// 获取编辑器 ID
+const getEditorId = (editorName) => {
+  const normalizedName = editorName.toLowerCase().replace(/\s+/g, '');
+
+  if (editors.value[normalizedName]) {
+    return normalizedName;
+  }
+
+  for (const [key, config] of Object.entries(editors.value)) {
+    const configName = config.name.toLowerCase().replace(/\s+/g, '');
+    if (configName === normalizedName || key === normalizedName) {
+      return key;
+    }
+  }
+
+  return normalizedName;
 };
 
 // 高亮匹配文本
@@ -224,14 +251,104 @@ const removeSubInput = () => {
   }
 };
 
+// 获取项目的已使用编辑器
+const getUsedEditors = (project) => {
+  const history = settingsStore.getEditorHistory(project.path);
+  // 返回使用历史中存在的编辑器 ID
+  return history;
+};
+
+// 获取项目的未使用编辑器
+const getUnusedEditors = (project) => {
+  const used = getUsedEditors(project);
+  // 返回所有配置的编辑器中，不在使用历史中的编辑器
+  return Object.keys(editors.value).filter(editorId => {
+    return !used.includes(editorId);
+  });
+};
+
+// 构建右键菜单项
+const buildContextMenu = (project) => {
+  const usedEditors = getUsedEditors(project);
+  const unusedEditors = getUnusedEditors(project);
+
+  const items = [];
+
+  // 已使用的编辑器
+  if (usedEditors.length > 0) {
+    usedEditors.forEach(editorId => {
+      const config = editors.value[editorId];
+      if (config) {
+        items.push({
+          key: editorId,
+          label: config.name,
+          icon: config.icon,
+          editorId: editorId,
+        });
+      }
+    });
+
+    // 分隔符
+    if (unusedEditors.length > 0) {
+      items.push({
+        type: 'divider',
+        key: 'divider',
+      });
+    }
+  }
+
+  // 未使用的编辑器
+  unusedEditors.forEach(editorId => {
+    const config = editors.value[editorId];
+    if (config) {
+      items.push({
+        key: editorId,
+        label: config.name,
+        icon: config.icon,
+        editorId: editorId,
+      });
+    }
+  });
+
+  return items;
+};
+
+// 处理右键菜单点击
+const handleContextMenuClick = (e, project) => {
+  const editorId = e.key;
+  const config = editors.value[editorId];
+  if (config) {
+    openWithEditor(project.path, config.name);
+  }
+  contextMenuVisible.value = false;
+};
+
+// 显示右键菜单
+const showContextMenu = (e, project) => {
+  e.preventDefault();
+  contextMenuProject.value = project;
+  contextMenuPosition.value = {
+    x: e.clientX,
+    y: e.clientY,
+  };
+  contextMenuVisible.value = true;
+};
+
+// 隐藏右键菜单
+const hideContextMenu = () => {
+  contextMenuVisible.value = false;
+};
+
 onMounted(() => {
   loadProjects();
   setupSubInput();
+  document.addEventListener('click', hideContextMenu);
 });
 
 // 组件卸载前清理
 onBeforeUnmount(() => {
   removeSubInput();
+  document.removeEventListener('click', hideContextMenu);
 });
 </script>
 
@@ -294,20 +411,27 @@ onBeforeUnmount(() => {
 
     <!-- 项目卡片列表 -->
     <div v-else class="projects-grid">
-      <div v-for="project in filteredProjects" :key="project.path" class="project-card">
+      <div v-for="project in filteredProjects" :key="project.path" class="project-card"
+        @contextmenu="showContextMenu($event, project)">
         <div class="project-header">
           <div class="project-name" :title="project.name" v-html="highlightText(project.name, searchKeyword)">
           </div>
-          <div class="project-actions">
-            <img v-for="editor in project.editors.filter(e => selectedEditors.includes(e))" :key="editor"
-              :src="getEditorIcon(editor)" :alt="getEditorDisplayName(editor)"
-              :title="`使用 ${getEditorDisplayName(editor)} 打开`" class="editor-icon"
-              @click.stop="openWithEditor(project.path, editor)" />
-          </div>
         </div>
 
-        <div class="project-path" :title="`${project.path} - 点击在文件管理器中打开`" @click="openInFolder(project.path)"
-          v-html="highlightText(project.path, searchKeyword)">
+        <div class="project-path" :title="`${project.path} - 点击在文件管理器中打开，右键选择编辑器打开`"
+          @click="openInFolder(project.path)" v-html="highlightText(project.path, searchKeyword)">
+        </div>
+      </div>
+
+      <!-- 右键菜单 -->
+      <div v-if="contextMenuVisible && contextMenuProject" class="context-menu"
+        :style="{ top: contextMenuPosition.y + 'px', left: contextMenuPosition.x + 'px' }">
+        <div v-for="item in buildContextMenu(contextMenuProject)" :key="item.key" class="context-menu-item"
+          :class="{ divider: item.type === 'divider' }" @click="item.type !== 'divider' && handleContextMenuClick(item, contextMenuProject)">
+          <template v-if="item.type !== 'divider'">
+            <img :src="item.icon" :alt="item.label" class="menu-icon" />
+            <span class="menu-label">{{ item.label }}</span>
+          </template>
         </div>
       </div>
     </div>
@@ -386,47 +510,42 @@ onBeforeUnmount(() => {
 }
 
 .project-card {
-  border: 1px solid var(--border-color, #e8e8e8);
-  border-radius: 8px;
-  padding: 10px;
-  transition: all 0.3s;
+  border: 1px solid #e8e8e8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  transition: all 0.3s ease;
   width: fit-content;
   max-width: 500px;
+  background-color: white;
+  cursor: context-menu;
 }
 
 .project-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
   border-color: var(--primary-color, #1890ff);
+  transform: translateY(-2px);
 }
 
 .project-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .project-name {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
   min-width: 0;
-}
-
-.project-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
+  color: rgba(0, 0, 0, 0.85);
 }
 
 .project-path {
   font-size: 12px;
-  color: #999;
+  color: #8c8c8c;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -438,17 +557,94 @@ onBeforeUnmount(() => {
   color: var(--primary-color, #1890ff);
 }
 
-.editor-icon {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  transition: transform 0.2s;
-  border-radius: 4px;
+/* 深色主题适配 */
+[data-theme="dark"] .project-card {
+  border-color: #434343;
+  background-color: #141414;
 }
 
-.editor-icon:hover {
-  transform: scale(1.15);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+[data-theme="dark"] .project-name {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="dark"] .project-path {
+  color: #8c8c8c;
+}
+
+.context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  box-shadow: 0 3px 12px -4px rgba(0, 0, 0, 0.15), 0 6px 16px -2px rgba(0, 0, 0, 0.1);
+  z-index: 1050;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.context-menu-item:hover:not(.divider) {
+  background-color: #fafafa;
+}
+
+.context-menu-item.divider {
+  border-bottom: 1px solid #f0f0f0;
+  padding: 0;
+  margin: 4px 0;
+  cursor: default;
+  min-height: 1px;
+}
+
+.context-menu-item.divider:hover {
+  background-color: transparent;
+}
+
+.menu-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-label {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.85);
+  font-weight: 500;
+}
+
+/* 深色主题适配 */
+[data-theme="dark"] .context-menu {
+  background: #262626;
+  border-color: #434343;
+  box-shadow: 0 3px 12px -4px rgba(0, 0, 0, 0.45), 0 6px 16px -2px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .context-menu-item {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+[data-theme="dark"] .context-menu-item:hover:not(.divider) {
+  background-color: #434343;
+}
+
+[data-theme="dark"] .context-menu-item.divider {
+  border-bottom-color: #434343;
+}
+
+[data-theme="dark"] .menu-label {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 /* 高亮样式 */
