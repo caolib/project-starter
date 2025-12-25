@@ -26,6 +26,9 @@ const availableEditors = computed(() => {
 // 筛选状态 - 默认全选
 const selectedEditors = ref([]);
 
+// 筛选栏展开/折叠状态 - 默认折叠
+const filterBarExpanded = ref(false);
+
 // 右键菜单的当前项目
 const contextMenuProject = ref(null);
 const contextMenuVisible = ref(false);
@@ -383,7 +386,29 @@ onBeforeUnmount(() => {
   <div class="home-view">
     <!-- 顶部筛选栏 -->
     <div class="filter-bar">
-      <div class="filter-section">
+      <div class="filter-bar-header">
+        <a-button type="text" size="small" @click="filterBarExpanded = !filterBarExpanded" class="filter-toggle-btn">
+          <template #icon>
+            <svg v-if="!filterBarExpanded" viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor">
+              <path
+                d="M512 820c-17.066 0-32-14.934-32-32V236c0-17.066 14.934-32 32-32s32 14.934 32 32v552c0 17.066-14.934 32-32 32z M284 548H172c-17.066 0-32-14.934-32-32s14.934-32 32-32h112c17.066 0 32 14.934 32 32s-14.934 32-32 32z M852 548H740c-17.066 0-32-14.934-32-32s14.934-32 32-32h112c17.066 0 32 14.934 32 32s-14.934 32-32 32z" />
+            </svg>
+            <svg v-else viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor">
+              <path
+                d="M512 204c17.066 0 32 14.934 32 32v552c0 17.066-14.934 32-32 32s-32-14.934-32-32V236c0-17.066 14.934-32 32-32z M284 476h112c17.066 0 32 14.934 32 32s-14.934 32-32 32H284c-17.066 0-32-14.934-32-32s14.934-32 32-32z M852 476H740c-17.066 0-32 14.934-32 32s14.934 32 32 32h112c17.066 0 32-14.934 32-32s-14.934-32-32-32z" />
+            </svg>
+          </template>
+          编辑器筛选
+        </a-button>
+        <a-button @click="loadProjects" :loading="loading" size="small" style="margin-left: auto;">
+          <template #icon>
+            <ReloadOutlined />
+          </template>
+          刷新
+        </a-button>
+      </div>
+
+      <div v-show="filterBarExpanded" class="filter-section">
         <div class="editor-filters">
           <a-checkbox :checked="selectedEditors.length === availableEditors.length && availableEditors.length > 0"
             :indeterminate="selectedEditors.length > 0 && selectedEditors.length < availableEditors.length"
@@ -397,25 +422,18 @@ onBeforeUnmount(() => {
           </a-checkbox>
         </div>
       </div>
-
-      <a-button @click="loadProjects" :loading="loading">
-        <template #icon>
-          <ReloadOutlined />
-        </template>
-        刷新
-      </a-button>
     </div>
 
     <!-- 项目统计 -->
     <div class="stats-bar" v-if="!loading && !error">
       <span>共找到 {{ filteredProjects.length }} 个项目</span>
-      <span v-if="editorSources.length > 0" style="margin-left: 16px; color: #999;">
+      <!-- <span v-if="editorSources.length > 0" style="margin-left: 16px; color: #999;">
         来自
         <span v-for="(source, idx) in editorSources" :key="idx">
           {{ source.editor }} ({{ source.projectCount }})
           <span v-if="idx < editorSources.length - 1">、</span>
         </span>
-      </span>
+      </span> -->
     </div>
 
     <!-- 加载状态 -->
@@ -445,8 +463,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="project-path" :title="`${project.path} - 点击在文件管理器中打开，右键选择编辑器打开`"
-          @click="openInFolder(project.path)" v-html="highlightText(project.path, searchKeyword)">
+        <div class="project-path" :title="`${project.path} - 点击在文件管理器中打开，右键选择编辑器打开`" @click="openInFolder(project.path)"
+          v-html="highlightText(project.path, searchKeyword)">
         </div>
       </div>
 
@@ -454,7 +472,8 @@ onBeforeUnmount(() => {
       <div v-if="contextMenuVisible && contextMenuProject" class="context-menu"
         :style="{ top: contextMenuPosition.y + 'px', left: contextMenuPosition.x + 'px' }">
         <div v-for="item in buildContextMenu(contextMenuProject)" :key="item.key" class="context-menu-item"
-          :class="{ divider: item.type === 'divider' }" @click="item.type !== 'divider' && handleContextMenuClick(item, contextMenuProject)">
+          :class="{ divider: item.type === 'divider' }"
+          @click="item.type !== 'divider' && handleContextMenuClick(item, contextMenuProject)">
           <template v-if="item.type !== 'divider'">
             <img :src="item.icon" :alt="item.label" class="menu-icon" />
             <span class="menu-label">{{ item.label }}</span>
@@ -474,10 +493,37 @@ onBeforeUnmount(() => {
 
 .filter-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
   border-radius: 8px;
+  background-color: transparent;
+  margin-bottom: 8px;
+}
+
+.filter-bar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background-color: #fafafa;
+  border: 1px solid #f0f0f0;
+  transition: all 0.2s ease;
+}
+
+.filter-bar-header:hover {
+  background-color: #f5f5f5;
+  border-color: #e8e8e8;
+}
+
+.filter-toggle-btn {
+  font-weight: 500;
+  color: #666;
+}
+
+.filter-toggle-btn:hover {
+  color: #1890ff;
 }
 
 .filter-section {
@@ -485,6 +531,11 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   flex: 1;
+  padding: 12px 16px;
+  background-color: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  animation: slideDown 0.2s ease;
 }
 
 .filter-label {
@@ -674,10 +725,51 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* 深色主题适配 - 筛选栏 */
+[data-theme="dark"] .filter-bar-header {
+  background-color: #262626;
+  border-color: #434343;
+}
+
+[data-theme="dark"] .filter-bar-header:hover {
+  background-color: #333333;
+  border-color: #525252;
+}
+
+[data-theme="dark"] .filter-toggle-btn {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+[data-theme="dark"] .filter-toggle-btn:hover {
+  color: #1890ff;
+}
+
+[data-theme="dark"] .filter-section {
+  background-color: #262626;
+  border-color: #434343;
+}
+
+[data-theme="dark"] .editor-filters :deep(.ant-checkbox-wrapper) {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* 动画 */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* 高亮样式 */
 :deep(.highlight) {
-  background: transparent;
-  color: yellow;
+  background: yellow;
+  color: red;
   padding: 0;
 }
 </style>
