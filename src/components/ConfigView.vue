@@ -3,9 +3,46 @@
 import { computed, ref, nextTick } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useSettingsStore } from '../stores/settings'
-import { ExportOutlined, ImportOutlined, SearchOutlined, FolderOpenOutlined, PlusOutlined, DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons-vue';
+import { ExportOutlined, ImportOutlined, SearchOutlined, FolderOpenOutlined, PlusOutlined, DeleteOutlined, EditOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons-vue';
 
 const settingsStore = useSettingsStore();
+
+// 所有可扫描的编辑器列表
+const allEditors = [
+    // VSCode 系列
+    { name: 'VS Code', commandName: 'code', editorType: 'vscode' },
+    { name: 'VS Code Insiders', commandName: 'code-insiders', editorType: 'vscode' },
+    { name: 'Cursor', commandName: 'cursor', editorType: 'vscode' },
+    { name: 'Windsurf', commandName: 'windsurf', editorType: 'vscode' },
+    { name: 'Qoder', commandName: 'qoder', editorType: 'vscode' },
+    { name: 'Trae', commandName: 'trae', editorType: 'vscode' },
+    { name: 'Trae CN', commandName: 'trae-cn', editorType: 'vscode' },
+    { name: 'VSCodium', commandName: 'codium', editorType: 'vscode' },
+    { name: 'CodeInside', commandName: 'codeinside', editorType: 'vscode' },
+    { name: 'HBuilderX', commandName: 'hbuilderx', editorType: 'vscode' },
+    { name: 'Lapce', commandName: 'lapce', editorType: 'vscode' },
+    { name: 'Positron', commandName: 'positron', editorType: 'vscode' },
+    { name: 'Void', commandName: 'void', editorType: 'vscode' },
+    // JetBrains 系列
+    { name: 'IntelliJ IDEA', commandName: 'idea', editorType: 'jetbrains' },
+    { name: 'IntelliJ IDEA Community', commandName: 'idea-community', editorType: 'jetbrains' },
+    { name: 'WebStorm', commandName: 'webstorm', editorType: 'jetbrains' },
+    { name: 'PyCharm', commandName: 'pycharm', editorType: 'jetbrains' },
+    { name: 'PyCharm Professional', commandName: 'pycharm-professional', editorType: 'jetbrains' },
+    { name: 'PyCharm Community', commandName: 'pycharm-community', editorType: 'jetbrains' },
+    { name: 'Android Studio', commandName: 'studio', editorType: 'jetbrains' },
+    { name: 'CLion', commandName: 'clion', editorType: 'jetbrains' },
+    { name: 'GoLand', commandName: 'goland', editorType: 'jetbrains' },
+    { name: 'RustRover', commandName: 'rustrover', editorType: 'jetbrains' },
+    { name: 'Rider', commandName: 'rider', editorType: 'jetbrains' },
+    { name: 'RubyMine', commandName: 'rubymine', editorType: 'jetbrains' },
+    { name: 'DataGrip', commandName: 'datagrip', editorType: 'jetbrains' },
+    { name: 'DataSpell', commandName: 'dataspell', editorType: 'jetbrains' },
+    { name: 'Aqua', commandName: 'aqua', editorType: 'jetbrains' },
+    { name: 'Fleet', commandName: 'fleet', editorType: 'jetbrains' },
+    // 其他
+    { name: 'Zed', commandName: 'zed', editorType: 'other' },
+];
 
 const theme = computed({
     get: () => settingsStore.theme.value,
@@ -62,6 +99,7 @@ const searching = ref({
 });
 
 const searchingAll = ref(false);
+const initializing = ref(false);
 
 // 主题选项
 const themeOptions = [
@@ -198,8 +236,28 @@ const searchEditorConfig = async (editorKey) => {
                                 }
                             } else if (exeFile) {
                                 // 没有 .bat，但有 .exe
-                                executablePath = exeFile;
-                                console.log('选择了 .exe 文件:', executablePath);
+                                // 优先选择 64.exe 文件（如 pycharm64.exe、studio64.exe）
+                                const is64Exe = exeFile.toLowerCase().includes('64.exe');
+                                if (is64Exe) {
+                                    executablePath = exeFile;
+                                    console.log('选择了 64.exe 文件:', executablePath);
+                                } else {
+                                    // 检查是否有 64.exe 版本
+                                    const dir = exeFile.substring(0, exeFile.lastIndexOf('\\'));
+                                    const baseName = exeFile.substring(exeFile.lastIndexOf('\\') + 1, exeFile.lastIndexOf('.'));
+                                    const possible64Exe = dir + '\\' + baseName + '64.exe';
+                                    if (window.services && typeof window.services.pathExists === 'function' && window.services.pathExists(possible64Exe)) {
+                                        executablePath = possible64Exe;
+                                        console.log('找到 64.exe 版本:', executablePath);
+                                    } else {
+                                        executablePath = exeFile;
+                                        console.log('选择了 .exe 文件:', executablePath);
+                                    }
+                                }
+                            } else if (res.path && res.path.toLowerCase().endsWith('.exe')) {
+                                // res.all 中没有 .exe，但 res.path 是 .exe（如 Toolbox 安装的编辑器）
+                                executablePath = res.path;
+                                console.log('使用 res.path 的 .exe 文件:', executablePath);
                             } else if (cmdFile) {
                                 // 最后才用 .cmd
                                 executablePath = cmdFile;
@@ -257,6 +315,29 @@ const searchEditorConfig = async (editorKey) => {
                                 executablePath = res.path || '';
                                 console.log('使用默认路径:', executablePath);
                             }
+                        }
+                    } else if (res.all && res.all.length === 1) {
+                        // 只有一个匹配项
+                        const singleFile = res.all[0];
+                        const isJetBrains = editorType === 'jetbrains';
+                        const isExe = singleFile.toLowerCase().endsWith('.exe');
+                        const is64Exe = singleFile.toLowerCase().includes('64.exe');
+
+                        if (isJetBrains && isExe && !is64Exe) {
+                            // JetBrains 编辑器，检查是否有 64.exe 版本
+                            const dir = singleFile.substring(0, singleFile.lastIndexOf('\\'));
+                            const baseName = singleFile.substring(singleFile.lastIndexOf('\\') + 1, singleFile.lastIndexOf('.'));
+                            const possible64Exe = dir + '\\' + baseName + '64.exe';
+                            if (window.services && typeof window.services.pathExists === 'function' && window.services.pathExists(possible64Exe)) {
+                                executablePath = possible64Exe;
+                                console.log('找到 64.exe 版本:', executablePath);
+                            } else {
+                                executablePath = singleFile;
+                                console.log('使用唯一匹配文件:', executablePath);
+                            }
+                        } else {
+                            executablePath = singleFile;
+                            console.log('使用唯一匹配文件:', executablePath);
                         }
                     } else {
                         executablePath = res.path || '';
@@ -420,6 +501,77 @@ const searchAllEditors = async () => {
     }, 100);
 };
 
+// 初始化：扫描本地所有可用编辑器并添加
+const initEditors = async () => {
+    initializing.value = true;
+    await nextTick();
+
+    setTimeout(async () => {
+        try {
+            let addedCount = 0;
+            let skippedCount = 0;
+            const currentEditors = editors.value;
+
+            for (const editorInfo of allEditors) {
+                // 检查是否已存在同名编辑器
+                const alreadyExists = Object.values(currentEditors).some(
+                    e => e.commandName === editorInfo.commandName
+                );
+
+                if (alreadyExists) {
+                    skippedCount++;
+                    continue;
+                }
+
+                // 检查命令是否可用
+                if (window.services && typeof window.services.findCommandPath === 'function') {
+                    const res = window.services.findCommandPath(editorInfo.commandName);
+                    if (res && res.success && res.path) {
+                        // 命令存在，添加编辑器
+                        settingsStore.addEditor({
+                            name: editorInfo.name,
+                            commandName: editorInfo.commandName,
+                            storageKeyword: editorInfo.commandName,
+                            icon: 'img/code.png',
+                            editorType: editorInfo.editorType
+                        });
+                        addedCount++;
+                        console.log(`已添加编辑器: ${editorInfo.name} (${editorInfo.commandName})`);
+                    }
+                }
+
+                // 短暂延迟让 UI 更新
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            if (addedCount > 0) {
+                // 对新添加的编辑器执行搜索填充
+                const editorKeys = Object.keys(editors.value);
+                for (const editorKey of editorKeys) {
+                    const editor = editors.value[editorKey];
+                    // 只对没有配置路径的编辑器执行搜索
+                    const hasNoConfig = editor.editorType === 'vscode' && !editor.storagePath
+                        || editor.editorType === 'jetbrains' && !editor.recentProjectsPath
+                        || editor.editorType === 'other' && !editor.zedDbPath && editor.commandName === 'zed'
+                        || !editor.executablePath;
+
+                    if (hasNoConfig) {
+                        await searchEditorConfig(editorKey);
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                }
+                message.success(`初始化完成：新增 ${addedCount} 个编辑器，跳过 ${skippedCount} 个`);
+            } else {
+                message.info(`未发现新的可用编辑器（跳过 ${skippedCount} 个已存在的编辑器）`);
+            }
+        } catch (error) {
+            message.error(`初始化失败: ${error.message}`);
+        } finally {
+            initializing.value = false;
+        }
+    }, 100);
+};
+
 // 手动选择文件
 const selectFile = (editorKey, type) => {
     try {
@@ -493,20 +645,20 @@ const saveData = () => {
     message.success("保存好了");
 }
 
-// 重置所有编辑器为默认
+// 清空所有编辑器配置
 const resetEditors = () => {
     Modal.confirm({
-        title: '确认重置编辑器配置',
-        content: '此操作仅重置编辑器列表与配置为默认值，其他设置（如主题）不受影响。',
-        okText: '重置',
+        title: '确认清空编辑器配置',
+        content: '此操作将清空所有编辑器配置，其他设置（如主题）不受影响。清空后可使用"初始化"按钮重新扫描。',
+        okText: '清空',
         cancelText: '取消',
         okType: 'danger',
         onOk() {
             try {
-                settingsStore.resetEditorsToDefault();
-                message.success('已重置编辑器配置为默认');
+                settingsStore.editors.value = {};
+                message.success('已清空编辑器配置');
             } catch (e) {
-                message.error(`重置失败: ${e.message}`);
+                message.error(`清空失败: ${e.message}`);
             }
         }
     });
@@ -785,22 +937,28 @@ const searchEditorConfigInModal = async () => {
                             }
                         } else if (exeFile) {
                             // 没有 .bat，但有 .exe
-                            // 如果 exe 在 bin 目录下，优先检查上一级是否有同名 exe
-                            if (exeFile.toLowerCase().includes('\\bin\\')) {
-                                const binIndex = exeFile.toLowerCase().lastIndexOf('\\bin\\');
-                                const fileName = exeFile.substring(binIndex + 5); // 取 bin\\ 后面的部分
-                                const parentPath = exeFile.substring(0, binIndex) + '\\' + fileName;
-                                if (window.services && typeof window.services.pathExists === 'function' && window.services.pathExists(parentPath)) {
-                                    executablePath = parentPath;
-                                    console.log('优先使用上一级 .exe 文件:', executablePath);
+                            // 优先选择 64.exe 文件（如 pycharm64.exe、studio64.exe）
+                            const is64Exe = exeFile.toLowerCase().includes('64.exe');
+                            if (is64Exe) {
+                                executablePath = exeFile;
+                                console.log('选择了 64.exe 文件:', executablePath);
+                            } else {
+                                // 检查是否有 64.exe 版本
+                                const dir = exeFile.substring(0, exeFile.lastIndexOf('\\'));
+                                const baseName = exeFile.substring(exeFile.lastIndexOf('\\') + 1, exeFile.lastIndexOf('.'));
+                                const possible64Exe = dir + '\\' + baseName + '64.exe';
+                                if (window.services && typeof window.services.pathExists === 'function' && window.services.pathExists(possible64Exe)) {
+                                    executablePath = possible64Exe;
+                                    console.log('找到 64.exe 版本:', executablePath);
                                 } else {
                                     executablePath = exeFile;
-                                    console.log('选择了 bin 目录下的 .exe 文件:', executablePath);
+                                    console.log('选择了 .exe 文件:', executablePath);
                                 }
-                            } else {
-                                executablePath = exeFile;
-                                console.log('选择了 .exe 文件:', executablePath);
                             }
+                        } else if (res.path && res.path.toLowerCase().endsWith('.exe')) {
+                            // res.all 中没有 .exe，但 res.path 是 .exe（如 Toolbox 安装的编辑器）
+                            executablePath = res.path;
+                            console.log('使用 res.path 的 .exe 文件:', executablePath);
                         } else if (cmdFile) {
                             // 最后才用 .cmd
                             executablePath = cmdFile;
@@ -856,6 +1014,29 @@ const searchEditorConfigInModal = async () => {
                             executablePath = res.path || '';
                             console.log('使用默认路径:', executablePath);
                         }
+                    }
+                } else if (res.all && res.all.length === 1) {
+                    // 只有一个匹配项
+                    const singleFile = res.all[0];
+                    const isJetBrains = editorForm.value.editorType === 'jetbrains';
+                    const isExe = singleFile.toLowerCase().endsWith('.exe');
+                    const is64Exe = singleFile.toLowerCase().includes('64.exe');
+
+                    if (isJetBrains && isExe && !is64Exe) {
+                        // JetBrains 编辑器，检查是否有 64.exe 版本
+                        const dir = singleFile.substring(0, singleFile.lastIndexOf('\\'));
+                        const baseName = singleFile.substring(singleFile.lastIndexOf('\\') + 1, singleFile.lastIndexOf('.'));
+                        const possible64Exe = dir + '\\' + baseName + '64.exe';
+                        if (window.services && typeof window.services.pathExists === 'function' && window.services.pathExists(possible64Exe)) {
+                            executablePath = possible64Exe;
+                            console.log('找到 64.exe 版本:', executablePath);
+                        } else {
+                            executablePath = singleFile;
+                            console.log('使用唯一匹配文件:', executablePath);
+                        }
+                    } else {
+                        executablePath = singleFile;
+                        console.log('使用唯一匹配文件:', executablePath);
                     }
                 } else {
                     executablePath = res.path || '';
@@ -1021,18 +1202,26 @@ const searchEditorConfigInModal = async () => {
         <a-divider>编辑器配置</a-divider>
 
         <div class="config-row" style="justify-content: space-between; padding-top: 0;">
-            <a-button type="primary" :loading="searchingAll" @click="searchAllEditors">
-                <template #icon>
-                    <SearchOutlined />
-                </template>
-                搜索填充全部
-            </a-button>
+            <div style="display:flex; gap:8px;">
+                <a-button type="primary" :loading="searchingAll" @click="searchAllEditors">
+                    <template #icon>
+                        <SearchOutlined />
+                    </template>
+                    搜索填充全部
+                </a-button>
+                <a-button type="primary" ghost :loading="initializing" @click="initEditors">
+                    <template #icon>
+                        <ThunderboltOutlined />
+                    </template>
+                    初始化
+                </a-button>
+            </div>
             <div style="display:flex; gap:8px;">
                 <a-button danger @click="resetEditors">
                     <template #icon>
-                        <ReloadOutlined />
+                        <DeleteOutlined />
                     </template>
-                    重置编辑器设置
+                    清空设置
                 </a-button>
                 <a-button type="dashed" @click="openAddEditorModal">
                     <template #icon>
