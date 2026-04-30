@@ -111,16 +111,31 @@ window.services = {
   // 智能查找 exe 文件：在指定目录及其 bin 子目录查找匹配的 exe
   findExeInDirectory(baseDir, commandName) {
     try {
+      const directExePath = path.join(baseDir, `${commandName}.exe`)
+      const directExeExists = fs.existsSync(directExePath)
+
       // 尝试的路径列表
       const tryPaths = [
-        path.join(baseDir, `${commandName}.exe`),
+        directExePath,
         path.join(baseDir, 'bin', `${commandName}.exe`),
         path.join(baseDir, `${commandName}64.exe`),
         path.join(baseDir, 'bin', `${commandName}64.exe`)
       ]
 
+      // Zed 这类安装布局会同时存在 bin 目录和安装根目录下的同名 exe。
+      // 如果根目录里已经有同名 exe，优先使用它，避免命中 bin 里的启动器。
+      if (directExeExists) {
+        return { success: true, path: directExePath }
+      }
+
       for (const tryPath of tryPaths) {
         if (fs.existsSync(tryPath)) {
+          if (/\\bin\\/i.test(tryPath)) {
+            const parentExePath = path.join(baseDir, `${commandName}.exe`)
+            if (fs.existsSync(parentExePath)) {
+              return { success: true, path: parentExePath }
+            }
+          }
           return { success: true, path: tryPath }
         }
       }
@@ -133,7 +148,12 @@ window.services = {
           f.toLowerCase().includes(commandName.toLowerCase()) && /\.exe$/i.test(f)
         )
         if (matchedExe) {
-          return { success: true, path: path.join(binDir, matchedExe) }
+          const binExePath = path.join(binDir, matchedExe)
+          const parentExePath = path.join(baseDir, matchedExe)
+          if (fs.existsSync(parentExePath)) {
+            return { success: true, path: parentExePath }
+          }
+          return { success: true, path: binExePath }
         }
       }
 
@@ -194,13 +214,23 @@ window.services = {
       let bestMatch
 
       if (isWindows) {
+        const preferSiblingExe = (exePath) => {
+          const exeDir = path.dirname(exePath)
+          if (path.basename(exeDir).toLowerCase() !== 'bin') {
+            return exePath
+          }
+
+          const parentExePath = path.join(path.dirname(exeDir), path.basename(exePath))
+          return fs.existsSync(parentExePath) ? parentExePath : exePath
+        }
+
         const batFile = allPaths.find((p) => /\.bat$/i.test(p))
         const cmdFile = allPaths.find((p) => /\.cmd$/i.test(p))
         const exeFile = allPaths.find((p) => /\.exe$/i.test(p))
 
-        // 1. 如果直接找到了 exe，优先使用
+        // 1. 如果直接找到了 exe，优先使用；若它位于 bin 下，则再检查上一级是否有同名 exe
         if (exeFile) {
-          bestMatch = exeFile
+          bestMatch = preferSiblingExe(exeFile)
         }
         // 2. 如果找到 bat/cmd，尝试从其所在目录智能查找 exe
         else if (batFile || cmdFile) {
@@ -488,6 +518,57 @@ window.services = {
     }
   }
   ,
+  // 搜索 Zed 编辑器的数据库文件
+  searchZedDatabase() {
+    try {
+      const results = []
+      // 使用 process.env.USERPROFILE 获取用户目录
+      const userProfile = process.env.USERPROFILE || window.utools.getPath('home')
+      const zedDbPath = path.join(userProfile, 'AppData', 'Local', 'Zed', 'db')
+
+      console.log('[searchZedDatabase] 用户目录:', userProfile);
+      console.log('[searchZedDatabase] Zed 数据库目录:', zedDbPath);
+      console.log('[searchZedDatabase] 目录是否存在:', fs.existsSync(zedDbPath));
+
+      if (fs.existsSync(zedDbPath)) {
+        // 直接列举 db 文件夹下的版本文件夹（如 0-stable、0-global 等）
+        const versionFolders = fs.readdirSync(zedDbPath);
+        console.log('[searchZedDatabase] 版本文件夹:', versionFolders);
+
+        // 将文件夹分为两类：stable 和其他
+        const stableFolders = [];
+        const otherFolders = [];
+
+        versionFolders.forEach(versionFolder => {
+          if (versionFolder.includes('stable')) {
+            stableFolders.push(versionFolder);
+          } else {
+            otherFolders.push(versionFolder);
+          }
+        });
+
+        // 优先检查 stable 文件夹
+        const orderedFolders = [...stableFolders, ...otherFolders];
+        console.log('[searchZedDatabase] 优先级排序的文件夹:', orderedFolders);
+
+        orderedFolders.forEach(versionFolder => {
+          const dbFilePath = path.join(zedDbPath, versionFolder, 'db.sqlite');
+          console.log('[searchZedDatabase] 检查文件:', dbFilePath);
+          if (fs.existsSync(dbFilePath)) {
+            console.log('[searchZedDatabase] 找到数据库文件:', dbFilePath);
+            results.push(dbFilePath);
+          }
+        });
+      }
+
+      console.log('[searchZedDatabase] 最终结果:', { success: true, results, count: results.length });
+      return { success: true, results, count: results.length }
+    } catch (error) {
+      console.error('[searchZedDatabase] 错误:', error)
+      return { success: false, message: error.message, results: [] }
+    }
+  }
+  ,
   // 从 VSCode 系列编辑器的 storage.json 文件中提取项目路径
   extractProjectsFromStorage(storageFilePath) {
     try {
@@ -581,6 +662,58 @@ window.services = {
     }
   }
   ,
+  // 从 Zed 编辑器的 sqlite 数据库中提取项目路径
+  extractProjectsFromZedDb(dbFilePath) {
+    try {
+      const { execSync } = require('child_process')
+
+      // 检查 sqlite3 是否可用
+      try {
+        execSync('sqlite3 --version', { encoding: 'utf-8' })
+      } catch (e) {
+        return { success: false, message: 'sqlite3 命令不可用', projects: [] }
+      }
+
+      // 查询 Zed 数据库中的工作区路径
+      // 如果 paths 为空，则跳过
+      const query = `SELECT paths FROM workspaces WHERE paths IS NOT NULL AND paths != '' ORDER BY timestamp DESC;`
+      const output = execSync(`sqlite3 "${dbFilePath}" "${query}"`, { encoding: 'utf-8' })
+
+      const projects = new Set()
+      const lines = output.trim().split('\n')
+
+      lines.forEach(line => {
+        const path_str = line.trim()
+        if (path_str) {
+          // 检查路径是否为目录，如果是单个文件则跳过
+          try {
+            const stat = fs.statSync(path_str)
+            if (stat.isDirectory()) {
+              projects.add(path_str)
+            } else {
+              console.log(`[extractProjectsFromZedDb] 跳过单个文件: ${path_str}`)
+            }
+          } catch (err) {
+            // 路径不存在，也保留它（由 UI 层根据用户设置决定是否显示）
+            console.log(`[extractProjectsFromZedDb] 路径不存在但保留: ${path_str}`)
+            projects.add(path_str)
+          }
+        }
+      })
+
+      const projectsList = Array.from(projects)
+
+      return {
+        success: true,
+        projects: projectsList,
+        count: projectsList.length,
+        source: dbFilePath
+      }
+    } catch (error) {
+      return { success: false, message: error.message, projects: [] }
+    }
+  }
+  ,
   // 从所有找到的 storage.json 和 recentProjects.xml 文件中提取项目
   // 接收编辑器配置，优先使用配置的 storagePath/recentProjectsPath
   extractAllProjects(editorsConfig) {
@@ -591,7 +724,7 @@ window.services = {
       if (editorsConfig) {
         Object.entries(editorsConfig).forEach(([key, config]) => {
           // VSCode 系列：使用 storagePath
-          if (config.storagePath && fs.existsSync(config.storagePath)) {
+          if (config.editorType === 'vscode' && config.storagePath && fs.existsSync(config.storagePath)) {
             projectSources.push({
               path: config.storagePath,
               editorName: config.name || key,
@@ -599,12 +732,48 @@ window.services = {
             })
           }
           // JetBrains 系列：使用 recentProjectsPath
-          else if (config.recentProjectsPath && fs.existsSync(config.recentProjectsPath)) {
+          else if (config.editorType === 'jetbrains' && config.recentProjectsPath && fs.existsSync(config.recentProjectsPath)) {
             projectSources.push({
               path: config.recentProjectsPath,
               editorName: config.name || key,
               type: 'jetbrains'
             })
+          }
+          // Zed 编辑器：通过 commandName 判断，使用 zedDbPath 或自动搜索
+          else if (config.commandName && config.commandName.toLowerCase() === 'zed') {
+            console.log(`[extractAllProjects] 检测到 Zed 编辑器: ${config.name || key}，zedDbPath: ${config.zedDbPath || '(空)'}`);
+            let zedDbPath = config.zedDbPath;
+
+            // 如果 zedDbPath 为空，尝试自动搜索
+            if (!zedDbPath) {
+              console.log(`[extractAllProjects] zedDbPath 为空，尝试自动搜索...`);
+              const searchResult = this.searchZedDatabase();
+              console.log(`[extractAllProjects] searchZedDatabase 结果:`, searchResult);
+              if (searchResult.success && searchResult.results.length > 0) {
+                zedDbPath = searchResult.results[0];
+                console.log(`[extractAllProjects] 自动搜索成功，找到数据库: ${zedDbPath}`);
+              } else {
+                console.log(`[extractAllProjects] 自动搜索失败或未找到数据库`);
+              }
+            }
+
+            // 如果找到了数据库文件，添加到项目源
+            if (zedDbPath) {
+              const exists = fs.existsSync(zedDbPath);
+              console.log(`[extractAllProjects] 检查数据库文件存在: ${exists}`);
+              if (exists) {
+                projectSources.push({
+                  path: zedDbPath,
+                  editorName: config.name || key,
+                  type: 'zed'
+                });
+                console.log(`[extractAllProjects] Zed 编辑器已添加到项目源`);
+              } else {
+                console.warn(`[extractAllProjects] Zed 数据库文件不存在: ${zedDbPath}`);
+              }
+            } else {
+              console.warn(`[extractAllProjects] 未能确定 Zed 数据库文件路径`);
+            }
           }
         })
       }
@@ -631,9 +800,14 @@ window.services = {
           result = this.extractProjectsFromStorage(sourcePath)
         } else if (type === 'jetbrains') {
           result = this.extractProjectsFromRecentProjectsXml(sourcePath)
+        } else if (type === 'zed') {
+          console.log(`[extractAllProjects] 开始提取 Zed 项目，数据库路径: ${sourcePath}`);
+          result = this.extractProjectsFromZedDb(sourcePath)
+          console.log(`[extractAllProjects] Zed 项目提取结果:`, result);
         }
 
         if (result && result.success) {
+          console.log(`[extractAllProjects] 编辑器 ${editorName} (${type}) 项目提取成功，项目数: ${result.count}`);
           editorSources.push({
             editor: editorName,
             path: sourcePath,

@@ -157,7 +157,8 @@ export function useSettingsStore() {
             executablePath: editorData.executablePath || '',
             storagePath: editorData.storagePath || '',
             recentProjectsPath: editorData.recentProjectsPath || '', // JetBrains 系列
-            editorType: editorData.editorType || 'vscode' // 'vscode' 或 'jetbrains'
+            zedDbPath: editorData.zedDbPath || '', // Zed 编辑器
+            editorType: editorData.editorType || 'other' // 'vscode'、'jetbrains'、'zed' 或 'other'
         }
         return id
     }

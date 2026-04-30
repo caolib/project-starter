@@ -28,6 +28,7 @@ const editors = computed(() => settingsStore.editors.value);
 const editorModalVisible = ref(false);
 const editorFormMode = ref('add'); // 'add' 或 'edit'
 const currentEditingKey = ref('');
+const selectedPreset = ref(null); // 预设编辑器选择
 const editorForm = ref({
     name: '',
     icon: 'img/code.png',
@@ -36,8 +37,20 @@ const editorForm = ref({
     executablePath: '',
     storagePath: '',
     recentProjectsPath: '',
-    editorType: '' // 用户必须手动选择
+    zedDbPath: '',
+    editorType: 'other'
 });
+
+const editorTypeOptions = [
+    { label: 'VSCode 系列', value: 'vscode' },
+    { label: 'JetBrains 系列', value: 'jetbrains' },
+    { label: '其他', value: 'other' }
+];
+
+// 预设编辑器列表（针对"其他"类型）
+const presetEditors = [
+    { label: 'Zed', value: 'zed' }
+];
 
 // 搜索状态
 const searching = ref({
@@ -138,12 +151,8 @@ const searchEditorConfig = async (editorKey) => {
             const editor = editors.value[editorKey];
             console.log(`======== 开始搜索编辑器: ${editorKey} ========`);
             console.log('编辑器配置:', JSON.stringify(editor, null, 2));
-            const editorType = editor.editorType || 'vscode';
+            const editorType = editor.editorType || 'other';
             console.log('编辑器类型:', editorType);
-
-            if (!editorType || editorType === 'vscode') {
-                console.warn('警告: 编辑器类型未设置或为vscode,JetBrains编辑器应设置为jetbrains');
-            }
 
             // 搜索可执行文件路径
             let executablePath = '';
@@ -228,8 +237,22 @@ const searchEditorConfig = async (editorKey) => {
                                 executablePath = batFile;
                                 console.log('选择了 .bat 文件:', executablePath);
                             } else if (exeFile) {
-                                executablePath = exeFile;
-                                console.log('选择了 .exe 文件:', executablePath);
+                                // 如果 exe 在 bin 目录下，优先检查上一级是否有同名 exe
+                                if (exeFile.toLowerCase().includes('\\bin\\')) {
+                                    const binIndex = exeFile.toLowerCase().lastIndexOf('\\bin\\');
+                                    const fileName = exeFile.substring(binIndex + 5); // 取 bin\\ 后面的部分
+                                    const parentPath = exeFile.substring(0, binIndex) + '\\' + fileName;
+                                    if (window.services && typeof window.services.pathExists === 'function' && window.services.pathExists(parentPath)) {
+                                        executablePath = parentPath;
+                                        console.log('优先使用上一级 .exe 文件:', executablePath);
+                                    } else {
+                                        executablePath = exeFile;
+                                        console.log('选择了 bin 目录下的 .exe 文件:', executablePath);
+                                    }
+                                } else {
+                                    executablePath = exeFile;
+                                    console.log('选择了 .exe 文件:', executablePath);
+                                }
                             } else {
                                 executablePath = res.path || '';
                                 console.log('使用默认路径:', executablePath);
@@ -309,6 +332,23 @@ const searchEditorConfig = async (editorKey) => {
                 }
             }
 
+            // 如果是 Zed 编辑器（通过 commandName 判断）：搜索数据库文件
+            if (editor.commandName && editor.commandName.toLowerCase() === 'zed') {
+                console.log('开始搜索 Zed 数据库...');
+                if (window.services && typeof window.services.searchZedDatabase === 'function') {
+                    const res = window.services.searchZedDatabase();
+                    console.log('searchZedDatabase 返回结果:', res);
+                    if (res && res.success && res.results.length > 0) {
+                        projectFilePath = res.results[0]; // 优先使用第一个找到的数据库
+                        console.log(`找到 Zed 数据库:`, projectFilePath);
+                    } else {
+                        console.log('searchZedDatabase 未找到文件或失败');
+                    }
+                } else {
+                    console.error('window.services.searchZedDatabase 函数不存在');
+                }
+            }
+
             // 更新配置
             const updateData = {
                 executablePath: executablePath || editor.executablePath
@@ -322,6 +362,8 @@ const searchEditorConfig = async (editorKey) => {
                 updateData.storagePath = projectFilePath || editor.storagePath;
             } else if (editorType === 'jetbrains') {
                 updateData.recentProjectsPath = projectFilePath || editor.recentProjectsPath;
+            } else if (editor.commandName && editor.commandName.toLowerCase() === 'zed') {
+                updateData.zedDbPath = projectFilePath || editor.zedDbPath;
             }
 
             console.log('准备更新配置:', updateData);
@@ -335,7 +377,9 @@ const searchEditorConfig = async (editorKey) => {
 
                 const foundItems = [];
                 if (executablePath) foundItems.push('可执行文件');
-                if (projectFilePath) foundItems.push(editorType === 'vscode' ? 'Storage 路径' : 'RecentProjects 路径');
+                if (editorType === 'vscode' && projectFilePath) foundItems.push('Storage 路径');
+                else if (editorType === 'jetbrains' && projectFilePath) foundItems.push('RecentProjects 路径');
+                else if (editor.commandName && editor.commandName.toLowerCase() === 'zed' && projectFilePath) foundItems.push('数据库文件');
                 if (iconPath) foundItems.push('图标');
 
                 message.success(`已找到 ${editor.name} 的${foundItems.join('、')}`);
@@ -381,12 +425,15 @@ const selectFile = (editorKey, type) => {
     try {
         const title = type === 'executable' ? '选择可执行文件'
             : type === 'recentProjects' ? '选择 recentProjects.xml 文件'
-                : '选择 storage.json 文件';
+                : type === 'zedDb' ? '选择 Zed 数据库文件'
+                    : '选择 storage.json 文件';
         const filters = type === 'executable'
             ? [{ name: '可执行文件', extensions: ['exe', 'cmd', 'bat'] }, { name: '所有文件', extensions: ['*'] }]
             : type === 'recentProjects'
                 ? [{ name: 'XML文件', extensions: ['xml'] }, { name: '所有文件', extensions: ['*'] }]
-                : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
+                : type === 'zedDb'
+                    ? [{ name: 'SQLite文件', extensions: ['sqlite', 'db'] }, { name: '所有文件', extensions: ['*'] }]
+                    : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
 
         const openPath = window.utools.showOpenDialog({
             title,
@@ -399,7 +446,8 @@ const selectFile = (editorKey, type) => {
             const filePath = openPath[0];
             const configKey = type === 'executable' ? 'executablePath'
                 : type === 'recentProjects' ? 'recentProjectsPath'
-                    : 'storagePath';
+                    : type === 'zedDb' ? 'zedDbPath'
+                        : 'storagePath';
             settingsStore.setEditorConfig(editorKey, {
                 [configKey]: filePath
             });
@@ -537,6 +585,7 @@ const importConfig = () => {
 // 打开添加编辑器对话框
 const openAddEditorModal = () => {
     editorFormMode.value = 'add';
+    selectedPreset.value = null;
     editorForm.value = {
         name: '',
         icon: 'img/code.png',
@@ -545,15 +594,32 @@ const openAddEditorModal = () => {
         executablePath: '',
         storagePath: '',
         recentProjectsPath: '',
-        editorType: '' // 用户必须手动选择
+        zedDbPath: '',
+        editorType: 'other'
     };
     editorModalVisible.value = true;
+};
+
+// 处理预设编辑器选择
+const selectPresetEditor = (editorLabel) => {
+    const preset = presetEditors.find(e => e.label === editorLabel);
+    if (preset) {
+        editorForm.value.name = preset.label;
+        editorForm.value.commandName = preset.value;
+        editorForm.value.storageKeyword = preset.value;
+
+        // 自动搜索填充
+        nextTick(() => {
+            searchEditorConfigInModal();
+        });
+    }
 };
 
 // 打开编辑编辑器对话框
 const openEditEditorModal = (editorKey) => {
     editorFormMode.value = 'edit';
     currentEditingKey.value = editorKey;
+    selectedPreset.value = null;
     const editor = editors.value[editorKey];
     editorForm.value = {
         name: editor.name,
@@ -563,7 +629,8 @@ const openEditEditorModal = (editorKey) => {
         executablePath: editor.executablePath,
         storagePath: editor.storagePath || '',
         recentProjectsPath: editor.recentProjectsPath || '',
-        editorType: editor.editorType || 'vscode'
+        zedDbPath: editor.zedDbPath || '',
+        editorType: editor.editorType || 'other'
     };
     editorModalVisible.value = true;
 };
@@ -606,12 +673,15 @@ const selectFileInModal = (type) => {
     try {
         const title = type === 'executable' ? '选择可执行文件'
             : type === 'recentProjects' ? '选择 recentProjects.xml 文件'
-                : '选择 storage.json 文件';
+                : type === 'zedDb' ? '选择 Zed 数据库文件'
+                    : '选择 storage.json 文件';
         const filters = type === 'executable'
             ? [{ name: '可执行文件', extensions: ['exe', 'cmd', 'bat'] }, { name: '所有文件', extensions: ['*'] }]
             : type === 'recentProjects'
                 ? [{ name: 'XML文件', extensions: ['xml'] }, { name: '所有文件', extensions: ['*'] }]
-                : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
+                : type === 'zedDb'
+                    ? [{ name: 'SQLite文件', extensions: ['sqlite', 'db'] }, { name: '所有文件', extensions: ['*'] }]
+                    : [{ name: 'JSON文件', extensions: ['json'] }, { name: '所有文件', extensions: ['*'] }];
 
         const openPath = window.utools.showOpenDialog({
             title,
@@ -625,6 +695,8 @@ const selectFileInModal = (type) => {
                 editorForm.value.executablePath = openPath[0];
             } else if (type === 'recentProjects') {
                 editorForm.value.recentProjectsPath = openPath[0];
+            } else if (type === 'zedDb') {
+                editorForm.value.zedDbPath = openPath[0];
             } else {
                 editorForm.value.storagePath = openPath[0];
             }
@@ -662,11 +734,6 @@ const searchEditorConfigInModal = async () => {
     // 检查必填字段
     if (!editorForm.value.commandName.trim()) {
         message.warning('请先输入命令名称');
-        return;
-    }
-
-    if (!editorForm.value.editorType) {
-        message.warning('请先选择编辑器类型');
         return;
     }
 
@@ -718,8 +785,22 @@ const searchEditorConfigInModal = async () => {
                             }
                         } else if (exeFile) {
                             // 没有 .bat，但有 .exe
-                            executablePath = exeFile;
-                            console.log('选择了 .exe 文件:', executablePath);
+                            // 如果 exe 在 bin 目录下，优先检查上一级是否有同名 exe
+                            if (exeFile.toLowerCase().includes('\\bin\\')) {
+                                const binIndex = exeFile.toLowerCase().lastIndexOf('\\bin\\');
+                                const fileName = exeFile.substring(binIndex + 5); // 取 bin\\ 后面的部分
+                                const parentPath = exeFile.substring(0, binIndex) + '\\' + fileName;
+                                if (window.services && typeof window.services.pathExists === 'function' && window.services.pathExists(parentPath)) {
+                                    executablePath = parentPath;
+                                    console.log('优先使用上一级 .exe 文件:', executablePath);
+                                } else {
+                                    executablePath = exeFile;
+                                    console.log('选择了 bin 目录下的 .exe 文件:', executablePath);
+                                }
+                            } else {
+                                executablePath = exeFile;
+                                console.log('选择了 .exe 文件:', executablePath);
+                            }
                         } else if (cmdFile) {
                             // 最后才用 .cmd
                             executablePath = cmdFile;
@@ -755,8 +836,22 @@ const searchEditorConfigInModal = async () => {
                             executablePath = batFile;
                             console.log('选择了 .bat 文件:', executablePath);
                         } else if (exeFile) {
-                            executablePath = exeFile;
-                            console.log('选择了 .exe 文件:', executablePath);
+                            // 如果 exe 在 bin 目录下，优先检查上一级是否有同名 exe
+                            if (exeFile.toLowerCase().includes('\\bin\\')) {
+                                const binIndex = exeFile.toLowerCase().lastIndexOf('\\bin\\');
+                                const fileName = exeFile.substring(binIndex + 5); // 取 bin\\ 后面的部分
+                                const parentPath = exeFile.substring(0, binIndex) + '\\' + fileName;
+                                if (window.services && typeof window.services.pathExists === 'function' && window.services.pathExists(parentPath)) {
+                                    executablePath = parentPath;
+                                    console.log('优先使用上一级 .exe 文件:', executablePath);
+                                } else {
+                                    executablePath = exeFile;
+                                    console.log('选择了 bin 目录下的 .exe 文件:', executablePath);
+                                }
+                            } else {
+                                executablePath = exeFile;
+                                console.log('选择了 .exe 文件:', executablePath);
+                            }
                         } else {
                             executablePath = res.path || '';
                             console.log('使用默认路径:', executablePath);
@@ -837,6 +932,23 @@ const searchEditorConfigInModal = async () => {
             }
         }
 
+        // 如果是 Zed 编辑器（通过 commandName 判断）：搜索数据库文件
+        if (editorForm.value.commandName.toLowerCase() === 'zed') {
+            console.log('开始搜索 Zed 数据库...');
+            if (window.services && typeof window.services.searchZedDatabase === 'function') {
+                const res = window.services.searchZedDatabase();
+                console.log('searchZedDatabase 返回结果:', res);
+                if (res && res.success && res.results.length > 0) {
+                    projectFilePath = res.results[0]; // 优先使用第一个找到的数据库
+                    console.log(`找到 Zed 数据库:`, projectFilePath);
+                } else {
+                    console.log('searchZedDatabase 未找到文件或失败');
+                }
+            } else {
+                console.error('window.services.searchZedDatabase 函数不存在');
+            }
+        }
+
         // 更新表单数据
         if (executablePath) {
             editorForm.value.executablePath = executablePath;
@@ -856,10 +968,19 @@ const searchEditorConfigInModal = async () => {
             }
         }
 
+        // 如果是 Zed 编辑器：保存数据库路径
+        if (editorForm.value.commandName.toLowerCase() === 'zed') {
+            if (projectFilePath) {
+                editorForm.value.zedDbPath = projectFilePath;
+            }
+        }
+
         // 显示成功消息
         const foundItems = [];
         if (executablePath) foundItems.push('可执行文件');
-        if (projectFilePath) foundItems.push(editorForm.value.editorType === 'vscode' ? 'Storage 路径' : 'RecentProjects 路径');
+        if (editorForm.value.editorType === 'vscode' && projectFilePath) foundItems.push('Storage 路径');
+        else if (editorForm.value.editorType === 'jetbrains' && projectFilePath) foundItems.push('RecentProjects 路径');
+        else if (editorForm.value.commandName.toLowerCase() === 'zed' && projectFilePath) foundItems.push('数据库文件');
         if (iconPath) foundItems.push('图标');
 
         if (foundItems.length > 0) {
@@ -968,7 +1089,7 @@ const searchEditorConfigInModal = async () => {
             </div>
 
             <!-- VSCode 系列的 Storage 路径 -->
-            <div class="editor-config-row" v-if="!editor.editorType || editor.editorType === 'vscode'">
+            <div class="editor-config-row" v-if="editor.editorType === 'vscode'">
                 <a-typography-text style="min-width: 100px;">配置文件路径:</a-typography-text>
                 <a-input :value="editor.storagePath"
                     @update:value="(val) => settingsStore.setEditorConfig(key, { storagePath: val })"
@@ -986,6 +1107,18 @@ const searchEditorConfigInModal = async () => {
                     @update:value="(val) => settingsStore.setEditorConfig(key, { recentProjectsPath: val })"
                     placeholder="recentProjects.xml 文件路径" style="flex: 1;" />
                 <a-button @click="selectFile(key, 'recentProjects')">
+                    <FolderOpenOutlined />
+                    选择
+                </a-button>
+            </div>
+
+            <!-- Zed 编辑器的数据库路径 -->
+            <div class="editor-config-row" v-if="editor.commandName && editor.commandName.toLowerCase() === 'zed'">
+                <a-typography-text style="min-width: 100px;">数据库文件:</a-typography-text>
+                <a-input :value="editor.zedDbPath"
+                    @update:value="(val) => settingsStore.setEditorConfig(key, { zedDbPath: val })"
+                    placeholder="db.sqlite 文件路径" style="flex: 1;" />
+                <a-button @click="selectFile(key, 'zedDb')">
                     <FolderOpenOutlined />
                     选择
                 </a-button>
@@ -1017,20 +1150,38 @@ const searchEditorConfigInModal = async () => {
             @ok="saveEditor" ok-text="保存" cancel-text="取消" width="600px">
             <a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
                 <a-form-item label="编辑器名称" required>
-                    <a-input v-model:value="editorForm.name" placeholder="如: Cursor / IDEA" />
+                    <!-- VSCode 和 JetBrains 类型: 普通输入框 -->
+                    <a-input v-if="editorForm.editorType !== 'other'" v-model:value="editorForm.name"
+                        placeholder="如: Cursor / IDEA" />
+                    <!-- 其他类型: 预设编辑器下拉列表 -->
+                    <a-select v-else v-model:value="editorForm.name" placeholder="选择预设编辑器" @change="selectPresetEditor">
+                        <a-select-option v-for="preset in presetEditors" :key="preset.value" :value="preset.label">
+                            {{ preset.label }}
+                        </a-select-option>
+                    </a-select>
                 </a-form-item>
 
                 <a-form-item label="编辑器类型" required>
                     <a-radio-group v-model:value="editorForm.editorType">
-                        <a-radio value="vscode">VSCode 系列</a-radio>
-                        <a-radio value="jetbrains">JetBrains 系列</a-radio>
+                        <a-radio v-for="option in editorTypeOptions" :key="option.value" :value="option.value">
+                            {{ option.label }}
+                        </a-radio>
                     </a-radio-group>
                 </a-form-item>
 
                 <a-form-item label="命令名称" required>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <a-input v-model:value="editorForm.commandName" placeholder="如果要使用自动搜索，请填充此属性"
-                            style="flex: 1;" />
+                    <!-- VSCode 和 JetBrains 类型: 文本输入 -->
+                    <div v-if="editorForm.editorType !== 'other'" style="display: flex; gap: 8px; align-items: center;">
+                        <a-input v-model:value="editorForm.commandName" placeholder="如: code、cursor" style="flex: 1;" />
+                        <a-button type="primary" size="small" :disabled="!editorForm.commandName.trim()"
+                            @click="searchEditorConfigInModal">
+                            <SearchOutlined />
+                            搜索
+                        </a-button>
+                    </div>
+                    <!-- 其他类型: 自定义输入框 -->
+                    <div v-else style="display: flex; gap: 8px; align-items: center;">
+                        <a-input v-model:value="editorForm.commandName" placeholder="或输入自定义命令" style="flex: 1;" />
                         <a-button type="primary" size="small" :disabled="!editorForm.commandName.trim()"
                             @click="searchEditorConfigInModal">
                             <SearchOutlined />
@@ -1039,7 +1190,7 @@ const searchEditorConfigInModal = async () => {
                     </div>
                     <template #extra>
                         <span style="font-size: 12px; color: #999;">
-                            编辑器对应的终端命令，如code、cursor等，输入后点击搜索可自动填充
+                            编辑器对应的终端命令，如code、zed等
                         </span>
                     </template>
                 </a-form-item>
@@ -1083,6 +1234,17 @@ const searchEditorConfigInModal = async () => {
                     <a-input v-model:value="editorForm.recentProjectsPath" placeholder="recentProjects.xml 文件路径">
                         <template #suffix>
                             <a-button type="link" size="small" @click="selectFileInModal('recentProjects')">
+                                <FolderOpenOutlined />
+                            </a-button>
+                        </template>
+                    </a-input>
+                </a-form-item>
+
+                <a-form-item label="数据库文件"
+                    v-if="editorForm.commandName && editorForm.commandName.toLowerCase() === 'zed'">
+                    <a-input v-model:value="editorForm.zedDbPath" placeholder="db.sqlite 文件路径">
+                        <template #suffix>
+                            <a-button type="link" size="small" @click="selectFileInModal('zedDb')">
                                 <FolderOpenOutlined />
                             </a-button>
                         </template>

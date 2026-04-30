@@ -85,13 +85,18 @@ const loadProjects = async () => {
     if (window.services && typeof window.services.extractAllProjects === 'function') {
       // 传递编辑器配置给 extractAllProjects
       const res = window.services.extractAllProjects(editors.value);
+      console.log('[HomeView] extractAllProjects 返回结果:', res);
       if (res && res.success) {
         projects.value = res.projects || [];
         editorSources.value = res.editorSources || [];
 
+        console.log('[HomeView] 编辑器来源:', editorSources.value);
+        console.log('[HomeView] 项目总数:', projects.value.length);
+
         // 首次加载时，默认选中所有编辑器
         if (selectedEditors.value.length === 0 && res.editorSources.length > 0) {
           selectedEditors.value = res.editorSources.map(source => source.editor);
+          console.log('[HomeView] 已选中的编辑器:', selectedEditors.value);
         }
 
         if (projects.value.length === 0) {
@@ -105,6 +110,7 @@ const loadProjects = async () => {
     }
   } catch (err) {
     error.value = err.message || String(err);
+    console.error('[HomeView] 加载项目出错:', err);
   } finally {
     loading.value = false;
   }
