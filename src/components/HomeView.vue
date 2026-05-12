@@ -18,6 +18,9 @@ const error = ref('');
 // 搜索关键字
 const searchKeyword = ref('');
 
+// 视图模式: 'card' 或 'tree'
+const viewMode = ref('card');
+
 // 所有可用的编辑器（从实际数据中提取）
 const availableEditors = computed(() => {
   return editorSources.value.map(source => source.editor);
@@ -260,6 +263,85 @@ const toggleAll = () => {
   }
 };
 
+// 构建文件树数据
+const treeData = computed(() => {
+  if (filteredProjects.value.length === 0) return [];
+
+  const root = {};
+  const separator = '\\';
+
+  filteredProjects.value.forEach(project => {
+    const path = project.path;
+    const parts = path.split(separator).filter(Boolean);
+    let current = root;
+
+    parts.forEach((part, index) => {
+      if (!current[part]) {
+        current[part] = {
+          _children: {},
+          _isProject: index === parts.length - 1,
+          _project: index === parts.length - 1 ? project : null,
+          _path: parts.slice(0, index + 1).join(separator)
+        };
+      }
+      if (index === parts.length - 1) {
+        current[part]._isProject = true;
+        current[part]._project = project;
+      }
+      current = current[part]._children;
+    });
+  });
+
+  // 递归转换为 ant-design-vue tree 数据格式
+  const convertToTreeData = (obj, parentPath = '') => {
+    const result = [];
+    const keys = Object.keys(obj).sort((a, b) => {
+      const aIsDir = Object.keys(obj[a]._children).length > 0;
+      const bIsDir = Object.keys(obj[b]._children).length > 0;
+      if (aIsDir && !bIsDir) return -1;
+      if (!aIsDir && bIsDir) return 1;
+      return a.localeCompare(b);
+    });
+
+    keys.forEach(key => {
+      const node = obj[key];
+      const hasChildren = Object.keys(node._children).length > 0;
+      const treeNode = {
+        key: node._path,
+        title: key,
+        isLeaf: !hasChildren,
+        class: node._isProject ? 'tree-project-node' : 'tree-folder-node',
+        _project: node._project,
+        _isProject: node._isProject
+      };
+
+      if (hasChildren) {
+        treeNode.children = convertToTreeData(node._children, node._path);
+      }
+
+      result.push(treeNode);
+    });
+
+    return result;
+  };
+
+  return convertToTreeData(root);
+});
+
+// 处理树节点点击
+const onTreeSelect = (selectedKeys, info) => {
+  if (info.node._project) {
+    openInFolder(info.node._project.path);
+  }
+};
+
+// 处理树节点右键
+const onTreeRightClick = (info) => {
+  if (info.node._project) {
+    showContextMenu(info.event, info.node._project);
+  }
+};
+
 // 设置子输入框
 const setupSubInput = () => {
   // 使用 nextTick 和 setTimeout 确保 DOM 完全渲染且 uTools 已初始化
@@ -429,12 +511,11 @@ onBeforeUnmount(() => {
           </template>
           编辑器筛选
         </a-button>
-        <a-button @click="loadProjects" :loading="loading" size="small" style="margin-left: auto;">
-          <template #icon>
-            <ReloadOutlined />
-          </template>
-          刷新
-        </a-button>
+        <div style="margin-left: auto; display: flex; gap: 4px;">
+          <a-button :type="viewMode === 'card' ? 'primary' : 'default'" size="small" @click="viewMode = 'card'">卡片</a-button>
+          <a-button :type="viewMode === 'tree' ? 'primary' : 'default'" size="small" @click="viewMode = 'tree'">树形</a-button>
+          <a-button @click="loadProjects" :loading="loading" size="small">刷新</a-button>
+        </div>
       </div>
 
       <div v-show="filterBarExpanded" class="filter-section">
@@ -483,8 +564,8 @@ onBeforeUnmount(() => {
       <p>{{ selectedEditors.length === 0 ? '请至少选择一个编辑器' : '未找到符合条件的项目' }}</p>
     </div>
 
-    <!-- 项目卡片列表 -->
-    <div v-else class="projects-grid">
+    <!-- 卡片视图 -->
+    <div v-else-if="viewMode === 'card'" class="projects-grid">
       <div v-for="project in filteredProjects" :key="project.path" class="project-card"
         @contextmenu="showContextMenu($event, project)">
         <div class="project-header">
@@ -496,18 +577,28 @@ onBeforeUnmount(() => {
           v-html="highlightText(project.path, searchKeyword)">
         </div>
       </div>
+    </div>
 
-      <!-- 右键菜单 -->
-      <div v-if="contextMenuVisible && contextMenuProject" class="context-menu"
-        :style="{ top: contextMenuPosition.y + 'px', left: contextMenuPosition.x + 'px' }">
-        <div v-for="item in buildContextMenu(contextMenuProject)" :key="item.key" class="context-menu-item"
-          :class="{ divider: item.type === 'divider' }"
-          @click="item.type !== 'divider' && handleContextMenuClick(item, contextMenuProject)">
-          <template v-if="item.type !== 'divider'">
-            <img :src="item.icon" :alt="item.label" class="menu-icon" />
-            <span class="menu-label">{{ item.label }}</span>
-          </template>
-        </div>
+    <!-- 文件树视图 -->
+    <div v-else class="tree-view">
+      <a-tree :tree-data="treeData" :show-line="true" default-expand-all :virtual="false"
+        @select="onTreeSelect" @rightClick="onTreeRightClick">
+        <template #title="{ title, _isProject }">
+          <span :class="{ 'tree-project-title': _isProject }">{{ title }}</span>
+        </template>
+      </a-tree>
+    </div>
+
+    <!-- 右键菜单 -->
+    <div v-if="contextMenuVisible && contextMenuProject" class="context-menu"
+      :style="{ top: contextMenuPosition.y + 'px', left: contextMenuPosition.x + 'px' }">
+      <div v-for="item in buildContextMenu(contextMenuProject)" :key="item.key" class="context-menu-item"
+        :class="{ divider: item.type === 'divider' }"
+        @click="item.type !== 'divider' && handleContextMenuClick(item, contextMenuProject)">
+        <template v-if="item.type !== 'divider'">
+          <img :src="item.icon" :alt="item.label" class="menu-icon" />
+          <span class="menu-label">{{ item.label }}</span>
+        </template>
       </div>
     </div>
   </div>
@@ -800,5 +891,68 @@ onBeforeUnmount(() => {
   background: yellow;
   color: red;
   padding: 0;
+}
+
+/* 文件树视图 */
+.tree-view {
+  padding: 8px 12px;
+  width: 100%;
+}
+
+.tree-view :deep(.ant-tree) {
+  background: transparent;
+}
+
+.tree-view :deep(.ant-tree-treenode) {
+  padding: 4px 0;
+}
+
+.tree-view :deep(.ant-tree-node-content-wrapper) {
+  border-radius: 6px;
+  padding: 4px 8px;
+  transition: all 0.2s;
+}
+
+.tree-view :deep(.ant-tree-switcher) {
+  align-self: center;
+}
+
+.tree-view :deep(.ant-tree-node-content-wrapper:hover) {
+  background-color: #f0f5ff;
+}
+
+.tree-view :deep(.ant-tree-node-selected .ant-tree-node-content-wrapper) {
+  background-color: #e6f7ff;
+}
+
+/* 隐藏树节点图标 */
+.tree-view :deep(.ant-tree-switcher-noop),
+.tree-view :deep(.ant-tree-iconEle) {
+  display: none;
+}
+
+/* 折叠按钮垂直居中 */
+.tree-view :deep(.ant-tree-switcher) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-project-title {
+  font-weight: 600;
+  color: #1890ff;
+}
+
+/* 深色主题 */
+[data-theme="dark"] .tree-view :deep(.ant-tree-node-content-wrapper:hover) {
+  background-color: #177ddc20;
+}
+
+[data-theme="dark"] .tree-view :deep(.ant-tree-node-selected .ant-tree-node-content-wrapper) {
+  background-color: #177ddc30;
+}
+
+[data-theme="dark"] .tree-project-title {
+  color: #40a9ff;
 }
 </style>
