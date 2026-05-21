@@ -16,12 +16,13 @@ const allEditors = [
     { name: 'Windsurf', commandName: 'windsurf', editorType: 'vscode' },
     { name: 'Qoder', commandName: 'qoder', editorType: 'vscode' },
     { name: 'Trae', commandName: 'trae', editorType: 'vscode' },
-    { name: 'Trae CN', commandName: 'trae-cn', editorType: 'vscode' },
+    { name: 'Trae CN', commandName: 'trae-cn', storageKeyword: 'Trae CN', editorType: 'vscode' },
     { name: 'VSCodium', commandName: 'codium', editorType: 'vscode' },
     { name: 'CodeInside', commandName: 'codeinside', editorType: 'vscode' },
     { name: 'HBuilderX', commandName: 'hbuilderx', editorType: 'vscode' },
     { name: 'Lapce', commandName: 'lapce', editorType: 'vscode' },
     { name: 'Positron', commandName: 'positron', editorType: 'vscode' },
+    { name: 'Antigravity', commandName: 'antigravity', editorType: 'vscode' },
     { name: 'Void', commandName: 'void', editorType: 'vscode' },
     // JetBrains 系列
     { name: 'IntelliJ IDEA', commandName: 'idea', editorType: 'jetbrains' },
@@ -120,6 +121,14 @@ const inferExePathFromCmd = (cmdPath, commandName) => {
 
         console.log('CMD 文件基名:', baseName);
 
+        // 从 cmd 基名生成所有候选 exe 文件名变体
+        const baseNameVariants = [
+            baseName,
+            baseName.charAt(0).toUpperCase() + baseName.slice(1),
+            // 连字符转空格并每个单词首字母大写（如 trae-cn → Trae CN）
+            baseName.replace(/-([a-z])/g, (_, c) => ' ' + c.toUpperCase()).replace(/^[a-z]/, c => c.toUpperCase()),
+        ];
+
         // 分割路径，逐级向上生成候选路径
         // 从 cmd 所在目录开始，逐级向上查找 .exe
         const pathParts = cmdPath.replace(/\//g, '\\').split('\\');
@@ -131,10 +140,9 @@ const inferExePathFromCmd = (cmdPath, commandName) => {
         // 从当前目录往上遍历，逐级生成候选路径
         for (let i = pathParts.length - 1; i >= 0; i--) {
             const currentPath = pathParts.slice(0, i + 1).join('\\');
-            // 尝试大写首字母的版本（如 Cursor.exe）
-            inferredPaths.push(currentPath + '\\' + baseName.charAt(0).toUpperCase() + baseName.slice(1) + '.exe');
-            // 尝试小写版本（如 cursor.exe）
-            inferredPaths.push(currentPath + '\\' + baseName + '.exe');
+            for (const variant of baseNameVariants) {
+                inferredPaths.push(currentPath + '\\' + variant + '.exe');
+            }
         }
 
         console.log('尝试推断的 .exe 路径:', inferredPaths);
@@ -364,23 +372,15 @@ const searchEditorConfig = async (editorKey) => {
             let projectFilePath = '';
 
             if (editorType === 'vscode') {
-                // VSCode 系列：搜索 storage.json
-                if (window.services && typeof window.services.searchStorageJson === 'function') {
-                    const res = window.services.searchStorageJson();
-                    if (res && res.success && res.results.length > 0) {
-                        const keyword = editor.storageKeyword || editor.name;
-                        console.log(`搜索 Storage 关键字: ${keyword}`);
-                        const matchedPath = res.results.find(p => {
-                            const lowerPath = p.toLowerCase();
-                            const lowerKeyword = keyword.toLowerCase();
-                            return lowerPath.includes(`\\${lowerKeyword}\\`);
-                        });
-                        if (matchedPath) {
-                            projectFilePath = matchedPath;
-                            console.log(`找到 Storage 路径:`, projectFilePath);
-                        } else {
-                            console.log(`未匹配到包含 "${keyword}" 的路径，所有结果:`, res.results);
-                        }
+                // VSCode 系列：直接根据编辑器名构造路径检查
+                if (window.services && typeof window.services.findStoragePath === 'function') {
+                    const keyword = editor.storageKeyword || editor.name;
+                    const res = window.services.findStoragePath(keyword);
+                    if (res && res.success) {
+                        projectFilePath = res.path;
+                        console.log(`找到 Storage 路径:`, projectFilePath);
+                    } else {
+                        console.log(`未找到 ${keyword} 的 storage.json`);
                     }
                 }
             } else if (editorType === 'jetbrains') {
@@ -531,7 +531,7 @@ const initEditors = async () => {
                         settingsStore.addEditor({
                             name: editorInfo.name,
                             commandName: editorInfo.commandName,
-                            storageKeyword: editorInfo.commandName,
+                            storageKeyword: editorInfo.storageKeyword || editorInfo.commandName,
                             icon: 'img/code.png',
                             editorType: editorInfo.editorType
                         });
@@ -889,8 +889,10 @@ const searchEditorConfigInModal = async () => {
         return;
     }
 
-    // 将配置路径关键字设置为命令名称的值
-    editorForm.value.storageKeyword = editorForm.value.commandName;
+    // 如果配置路径关键字为空，自动设置为命令名称的值
+    if (!editorForm.value.storageKeyword) {
+        editorForm.value.storageKeyword = editorForm.value.commandName;
+    }
 
     // 搜索可执行文件路径
     let executablePath = '';
@@ -1065,23 +1067,15 @@ const searchEditorConfigInModal = async () => {
         let projectFilePath = '';
 
         if (editorForm.value.editorType === 'vscode') {
-            // VSCode 系列：搜索 storage.json
-            if (window.services && typeof window.services.searchStorageJson === 'function') {
-                const res = window.services.searchStorageJson();
-                if (res && res.success && res.results.length > 0) {
-                    const keyword = editorForm.value.storageKeyword;
-                    console.log(`搜索 Storage 关键字: ${keyword}`);
-                    const matchedPath = res.results.find(p => {
-                        const lowerPath = p.toLowerCase();
-                        const lowerKeyword = keyword.toLowerCase();
-                        return lowerPath.includes(`\\${lowerKeyword}\\`);
-                    });
-                    if (matchedPath) {
-                        projectFilePath = matchedPath;
-                        console.log(`找到 Storage 路径:`, projectFilePath);
-                    } else {
-                        console.log(`未匹配到包含 "${keyword}" 的路径，所有结果:`, res.results);
-                    }
+            // VSCode 系列：直接根据编辑器名构造路径检查
+            if (window.services && typeof window.services.findStoragePath === 'function') {
+                const keyword = editorForm.value.storageKeyword || editorForm.value.name;
+                const res = window.services.findStoragePath(keyword);
+                if (res && res.success) {
+                    projectFilePath = res.path;
+                    console.log(`找到 Storage 路径:`, projectFilePath);
+                } else {
+                    console.log(`未找到 ${keyword} 的 storage.json`);
                 }
             }
         } else if (editorForm.value.editorType === 'jetbrains') {

@@ -435,34 +435,37 @@ window.services = {
     }
   }
   ,
+  // 根据编辑器名直接查找 storage.json 路径
+  findStoragePath(editorName) {
+    try {
+      const roamingPath = window.utools.getPath('appData')
+      const storagePath = path.join(roamingPath, editorName, 'User', 'globalStorage', 'storage.json')
+      if (fs.existsSync(storagePath)) {
+        return { success: true, path: storagePath }
+      }
+      return { success: false, message: '文件不存在' }
+    } catch (error) {
+      return { success: false, message: error.message }
+    }
+  },
   // 搜索 storage.json 文件（在 AppData/Roaming 下的 globalStorage 文件夹中）
   searchStorageJson() {
     try {
       const startTime = Date.now()
-      // 获取 AppData/Roaming 路径
       const roamingPath = window.utools.getPath('appData')
-      // console.log('[searchStorageJson] roamingPath:', roamingPath)
       const results = []
 
       // VSCode 系列编辑器的常见文件夹名
-      const vscodeEditors = ['Code', 'Cursor', 'Qoder', 'Trae', 'VSCodium', 'Code - Insiders']
+      const vscodeEditors = ['Code', 'Cursor', 'Qoder', 'Trae', 'Trae CN', 'Antigravity', 'VSCodium', 'Code - Insiders']
 
       for (const editorName of vscodeEditors) {
-        const editorPath = path.join(roamingPath, editorName)
-        if (fs.existsSync(editorPath)) {
-          // console.log(`[searchStorageJson] 检查 ${editorName} 目录:`, editorPath)
-
-          // 查找 User/globalStorage/storage.json
-          const storagePath = path.join(editorPath, 'User', 'globalStorage', 'storage.json')
-          if (fs.existsSync(storagePath)) {
-            // console.log(`[searchStorageJson] 找到 storage.json:`, storagePath)
-            results.push(storagePath)
-          }
+        const storagePath = path.join(roamingPath, editorName, 'User', 'globalStorage', 'storage.json')
+        if (fs.existsSync(storagePath)) {
+          results.push(storagePath)
         }
       }
 
       const elapsed = Date.now() - startTime
-      // console.log(`[searchStorageJson] 搜索完成，耗时 ${elapsed}ms，找到 ${results.length} 个文件`)
       return { success: true, results, count: results.length }
     } catch (error) {
       console.error('[searchStorageJson] 搜索失败:', error)
