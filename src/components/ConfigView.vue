@@ -90,6 +90,14 @@ const presetEditors = [
     { label: 'Zed', value: 'zed' }
 ];
 
+// 根据选择的编辑器类型筛选编辑器列表
+const filteredEditors = computed(() => {
+    return allEditors.filter(e => e.editorType === editorForm.value.editorType);
+});
+
+// 编辑器名称自动完成的搜索文本
+const editorNameSearch = ref('');
+
 // 搜索状态
 const searching = ref({
     code: false,
@@ -767,6 +775,15 @@ const selectPresetEditor = (editorLabel) => {
     }
 };
 
+// 根据编辑器名称选择编辑器
+const selectEditorByName = (name) => {
+    const editor = allEditors.find(e => e.name === name && e.editorType === editorForm.value.editorType);
+    if (editor) {
+        editorForm.value.commandName = editor.commandName;
+        editorForm.value.storageKeyword = editor.storageKeyword || '';
+    }
+};
+
 // 打开编辑编辑器对话框
 const openEditEditorModal = (editorKey) => {
     editorFormMode.value = 'edit';
@@ -1332,24 +1349,33 @@ const searchEditorConfigInModal = async () => {
         <a-modal v-model:open="editorModalVisible" :title="editorFormMode === 'add' ? '添加编辑器' : '编辑编辑器'"
             @ok="saveEditor" ok-text="保存" cancel-text="取消" width="600px">
             <a-form :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
-                <a-form-item label="编辑器名称" required>
-                    <!-- VSCode 和 JetBrains 类型: 普通输入框 -->
-                    <a-input v-if="editorForm.editorType !== 'other'" v-model:value="editorForm.name"
-                        placeholder="如: Cursor / IDEA" />
-                    <!-- 其他类型: 预设编辑器下拉列表 -->
-                    <a-select v-else v-model:value="editorForm.name" placeholder="选择预设编辑器" @change="selectPresetEditor">
-                        <a-select-option v-for="preset in presetEditors" :key="preset.value" :value="preset.label">
-                            {{ preset.label }}
-                        </a-select-option>
-                    </a-select>
-                </a-form-item>
-
                 <a-form-item label="编辑器类型" required>
                     <a-radio-group v-model:value="editorForm.editorType">
                         <a-radio v-for="option in editorTypeOptions" :key="option.value" :value="option.value">
                             {{ option.label }}
                         </a-radio>
                     </a-radio-group>
+                </a-form-item>
+
+                <a-form-item label="编辑器名称" required>
+                    <!-- VSCode 和 JetBrains 类型: 自动完成输入框 -->
+                    <a-auto-complete
+                        v-if="editorForm.editorType !== 'other'"
+                        v-model:value="editorForm.name"
+                        :options="filteredEditors.map(e => ({ value: e.name }))"
+                        :filter-option="(inputValue, option) => option.value.toLowerCase().includes(inputValue.toLowerCase())"
+                        placeholder="如: Cursor / IDEA"
+                        @select="(value) => selectEditorByName(value)"
+                    />
+                    <!-- 其他类型: 预设编辑器自动完成 -->
+                    <a-auto-complete
+                        v-else
+                        v-model:value="editorForm.name"
+                        :options="presetEditors.map(e => ({ value: e.label }))"
+                        :filter-option="(inputValue, option) => option.value.toLowerCase().includes(inputValue.toLowerCase())"
+                        placeholder="选择或输入自定义编辑器"
+                        @select="(value) => selectPresetEditor(value)"
+                    />
                 </a-form-item>
 
                 <a-form-item label="命令名称" required>
