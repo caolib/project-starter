@@ -1,22 +1,16 @@
 ## 更新内容
 
 ### ✨ 新功能
-- [b205bbb] ✨ feat: 光标自动聚焦到文本域
-- [f1d3361] ✨ feat: 支持复制后直接粘贴
-- [921ada4] ✨ feat: 添加配置导入导出功能
-- [83d311b] ✨ feat: 添加深色主题
-- [34bcd51] ✨ feat: 动态注册命令
-- [7dc951a] ✨ feat: 添加自动分类规则配置
+- [bedf93b] ✨ feat: 添加编辑器名称自动完成搜索功能
+- [f4dd06e] ✨ feat: 添加文件树视图
+- [baa1881] ✨ feat: 添加快速初始化功能
+- [ea482bd] ✨ feat: 添加对zed编辑器的支持
 
 ### 🐛 修复
-- [eeb29a8] 🐛 fix: 添加贡献者和问题id等属性，添加自动分类功能
+- [2fe7d09] 🐛 fix: 一些编辑器的配置文件没有搜索到
 
 ### 🔧 其他
-- [04c742e] 🐳 chore: 发布 v0.2.0
-- [82e2456] 📄 docs: 添加变更日志文件
-- [b4afcf1] 🦄 refactor: 存储改为使用utools官方的db-storage工具
-- [12cde6e] 🦄 refactor: 优化规则配置
-- [ca7d0fb] 🌈 style: 优化界面布局
+- [088290e] 🐳 chore: 迁移到 vite 8
 
 ---
-📋 [查看完整更新日志](https://github.com/caolib/git-commit-helper/compare/v0.1.0...v0.2.0)
+📋 [查看完整更新日志](https://github.com/caolib/git-commit-helper/compare/v0.0.5...v0.0.6)
